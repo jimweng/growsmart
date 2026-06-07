@@ -53,9 +53,11 @@ func (h *Handler) children(w http.ResponseWriter, r *http.Request) {
 
 	case http.MethodPost:
 		var req struct {
-			Name      string `json:"name"`
-			Gender    string `json:"gender"`
-			BirthDate string `json:"birthDate"`
+			Name         string   `json:"name"`
+			Gender       string   `json:"gender"`
+			BirthDate    string   `json:"birthDate"`
+			FatherHeight *float64 `json:"fatherHeight"`
+			MotherHeight *float64 `json:"motherHeight"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeError(w, 400, "invalid JSON")
@@ -65,7 +67,7 @@ func (h *Handler) children(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 400, "name, gender (male|female), birthDate required")
 			return
 		}
-		c, err := h.db.CreateChild(req.Name, req.Gender, req.BirthDate)
+		c, err := h.db.CreateChild(req.Name, req.Gender, req.BirthDate, req.FatherHeight, req.MotherHeight)
 		if err != nil {
 			writeError(w, 500, err.Error())
 			return
@@ -106,6 +108,12 @@ func (h *Handler) childrenSub(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// /api/children/:id/ai-history
+	if parts[1] == "ai-history" {
+		h.handleAIHistory(w, r, childID)
+		return
+	}
+
 	writeError(w, 404, "not found")
 }
 
@@ -113,15 +121,17 @@ func (h *Handler) childByID(w http.ResponseWriter, r *http.Request, childID stri
 	switch r.Method {
 	case http.MethodPut:
 		var req struct {
-			Name      string `json:"name"`
-			Gender    string `json:"gender"`
-			BirthDate string `json:"birthDate"`
+			Name         string   `json:"name"`
+			Gender       string   `json:"gender"`
+			BirthDate    string   `json:"birthDate"`
+			FatherHeight *float64 `json:"fatherHeight"`
+			MotherHeight *float64 `json:"motherHeight"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeError(w, 400, "invalid JSON")
 			return
 		}
-		c, err := h.db.UpdateChild(childID, req.Name, req.Gender, req.BirthDate)
+		c, err := h.db.UpdateChild(childID, req.Name, req.Gender, req.BirthDate, req.FatherHeight, req.MotherHeight)
 		if err != nil {
 			writeError(w, 500, err.Error())
 			return

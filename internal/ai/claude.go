@@ -15,6 +15,55 @@ import (
 	"time"
 )
 
+// ── Host Proxy ────────────────────────────────────────────────────────────────
+
+type proxyRequest struct {
+	SystemPrompt string    `json:"systemPrompt"`
+	Messages     []Message `json:"messages"`
+}
+
+type proxyResponse struct {
+	Answer string `json:"answer"`
+	Error  string `json:"error"`
+}
+
+// callProxy calls the host-side claude-proxy HTTP server.
+// The proxy URL is set via CLAUDE_PROXY_URL env var (e.g. http://host.docker.internal:9999).
+func callProxy(ctx context.Context, systemPrompt string, messages []Message) (string, error) {
+	proxyURL := os.Getenv("CLAUDE_PROXY_URL")
+	if proxyURL == "" {
+		return "", fmt.Errorf("CLAUDE_PROXY_URL not set")
+	}
+
+	payload, _ := json.Marshal(proxyRequest{
+		SystemPrompt: systemPrompt,
+		Messages:     messages,
+	})
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, proxyURL+"/ask", bytes.NewReader(payload))
+	if err != nil {
+		return "", fmt.Errorf("proxy request build: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 120 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("proxy unreachable: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	var result proxyResponse
+	if err := json.Unmarshal(body, &result); err != nil {
+		return "", fmt.Errorf("proxy decode: %w", err)
+	}
+	if result.Error != "" {
+		return "", fmt.Errorf("proxy error: %s", result.Error)
+	}
+	return result.Answer, nil
+}
+
 const (
 	apiURL = "https://api.anthropic.com/v1/messages"
 	model  = "claude-haiku-4-5-20251001"
@@ -243,8 +292,11 @@ func Ask(ctx context.Context, childCtx ChildContext, history []Message, question
 		msgs = msgs[len(msgs)-maxHistoryMessages:]
 	}
 
-	// Try local CLI first (user's explicit preference), fallback to API
-	answer, err := callLocalCLI(ctx, systemPrompt, msgs)
+	// Priority: host proxy → local CLI → Anthropic API
+	answer, err := callProxy(ctx, systemPrompt, msgs)
+	if err != nil {
+		answer, err = callLocalCLI(ctx, systemPrompt, msgs)
+	}
 	if err != nil {
 		answer, err = callAPI(ctx, systemPrompt, msgs)
 	}

@@ -40,6 +40,26 @@
         <ul id="children-list" class="children-list"></ul>
       </div>
 
+      <!-- Separator -->
+      <div class="sidebar-separator"></div>
+
+      <!-- Navigation tabs -->
+      <div class="nav-panel">
+        <div class="panel-header">
+          <h3>功能選單</h3>
+        </div>
+        <ul class="nav-list">
+          <li class="nav-item active" data-tab="growth">
+            <span class="nav-icon">📊</span>
+            <span class="nav-text">成長資訊</span>
+          </li>
+          <li class="nav-item" data-tab="ai">
+            <span class="nav-icon">🤖</span>
+            <span class="nav-text">AI 成長顧問</span>
+          </li>
+        </ul>
+      </div>
+
       <!-- Add/Edit child form -->
       <div id="child-form" class="child-form hidden">
         <h4 id="child-form-title">新增孩子</h4>
@@ -55,6 +75,14 @@
         <label>出生日期
           <input id="cf-birth" type="date" />
         </label>
+        <div class="form-row">
+          <label>父親身高 (cm) <span class="optional">選填</span>
+            <input id="cf-father-height" type="number" step="0.1" min="140" max="220" placeholder="175" />
+          </label>
+          <label>母親身高 (cm) <span class="optional">選填</span>
+            <input id="cf-mother-height" type="number" step="0.1" min="140" max="220" placeholder="160" />
+          </label>
+        </div>
         <div class="form-actions">
           <button id="cf-cancel" class="btn-secondary">取消</button>
           <button id="cf-save" class="btn-primary">儲存</button>
@@ -78,93 +106,123 @@
             <h2 id="child-name">孩子</h2>
             <p id="child-meta" class="child-meta"></p>
           </div>
-          <div class="header-actions">
-            <button id="btn-edit-child" class="btn-secondary btn-sm">編輯</button>
-            <button id="btn-delete-child" class="btn-danger btn-sm">刪除</button>
+          <div class="dropdown">
+            <button id="btn-more-actions" class="btn-more-actions" title="更多操作">⋮</button>
+            <div id="more-actions-menu" class="dropdown-menu hidden">
+              <button id="btn-edit-child" class="dropdown-item">編輯資料</button>
+              <button id="btn-delete-child" class="dropdown-item danger">刪除孩子</button>
+            </div>
           </div>
         </header>
 
-        <!-- Stats row -->
-        <div class="stats-row" id="stats-row"></div>
+        <!-- Tab Content 1: Growth Info -->
+        <div id="tab-content-growth" class="tab-content">
+          <!-- Feature 2: Growth deviation alert -->
+          <div id="growth-alert" class="growth-alert hidden"></div>
 
-        <!-- Chart type toggle -->
-        <div class="chart-controls">
-          <div class="toggle-group">
-            <button id="toggle-height" class="toggle-btn active" data-type="height">身高</button>
-            <button id="toggle-weight" class="toggle-btn" data-type="weight">體重</button>
+          <!-- Stats row -->
+          <div class="stats-row" id="stats-row"></div>
+
+          <!-- Feature 4: Lifestyle advisor cards -->
+          <div id="lifestyle-cards" class="lifestyle-cards hidden"></div>
+
+          <!-- Chart type toggle -->
+          <div class="chart-controls">
+            <div class="toggle-group">
+              <button id="toggle-height" class="toggle-btn active" data-type="height">身高</button>
+              <button id="toggle-weight" class="toggle-btn" data-type="weight">體重</button>
+            </div>
+          </div>
+
+          <!-- Chart -->
+          <div class="chart-container">
+            <canvas id="growth-chart"></canvas>
+          </div>
+
+          <!-- Measurement input -->
+          <div class="measure-section">
+            <h3>新增測量</h3>
+            <div class="measure-form">
+              <label>日期
+                <input id="m-date" type="date" />
+              </label>
+              <label>身高 (cm)
+                <input id="m-height" type="number" step="0.1" min="30" max="200" placeholder="103.0" />
+              </label>
+              <label>體重 (kg)
+                <input id="m-weight" type="number" step="0.1" min="2" max="100" placeholder="15.5" />
+              </label>
+              <button id="btn-add-measure" class="btn-primary">新增</button>
+            </div>
+          </div>
+
+          <!-- Measurement history -->
+          <div class="history-section">
+            <h3>測量記錄</h3>
+            <div class="table-container">
+              <table id="measure-table" class="measure-table">
+                <thead>
+                  <tr>
+                    <th>日期</th>
+                    <th>年齡</th>
+                    <th>身高 (cm)</th>
+                    <th>體重 (kg)</th>
+                    <th>身高百分位</th>
+                    <th>體重百分位</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="measure-tbody"></tbody>
+              </table>
+            </div>
+            <div id="table-pagination" class="table-pagination hidden">
+              <button id="btn-prev-page" class="btn-page" title="上一頁">◀</button>
+              <span id="page-indicator" class="page-indicator">1 / 1</span>
+              <button id="btn-next-page" class="btn-page" title="下一頁">▶</button>
+            </div>
+            <p id="no-measures" class="no-data">尚無測量記錄</p>
           </div>
         </div>
 
-        <!-- Chart -->
-        <div class="chart-container">
-          <canvas id="growth-chart"></canvas>
-        </div>
-
-        <!-- Measurement input -->
-        <div class="measure-section">
-          <h3>新增測量</h3>
-          <div class="measure-form">
-            <label>日期
-              <input id="m-date" type="date" />
-            </label>
-            <label>身高 (cm)
-              <input id="m-height" type="number" step="0.1" min="30" max="200" placeholder="103.0" />
-            </label>
-            <label>體重 (kg)
-              <input id="m-weight" type="number" step="0.1" min="2" max="100" placeholder="15.5" />
-            </label>
-            <button id="btn-add-measure" class="btn-primary">新增</button>
+        <!-- Tab Content 2: AI Advisor -->
+        <div id="tab-content-ai" class="tab-content hidden">
+          <!-- AI chat (multi-turn) -->
+          <div class="ai-section">
+            <div class="ai-header">
+              <h3>🤖 AI 成長顧問</h3>
+              <button id="ai-clear" class="btn-secondary btn-sm">清除對話</button>
+            </div>
+            <p class="ai-hint">只能詢問與孩子成長相關的問題（身高、體重、營養、睡眠、運動等）</p>
+            <div class="ai-examples">
+              <span>例：</span>
+              <button class="ai-example-btn">女兒身高偏低，有哪些飲食建議？</button>
+              <button class="ai-example-btn">幾歲睡前喝牛奶最有幫助？</button>
+              <button class="ai-example-btn">成長激素什麼時候分泌最多？</button>
+            </div>
+            <!-- Conversation thread -->
+            <div id="ai-thread" class="ai-thread">
+              <p class="ai-thread-empty">開始詢問孩子成長相關問題</p>
+            </div>
+            <div id="ai-loading" class="ai-loading hidden">AI 正在思考中…</div>
+            <div id="ai-error" class="ai-error hidden"></div>
+            <div class="ai-input-row">
+              <textarea id="ai-question" placeholder="輸入問題… (Cmd+Enter 送出，最多 300 字)" rows="2" maxlength="300"></textarea>
+              <button id="ai-submit" class="btn-primary">送出</button>
+            </div>
           </div>
-        </div>
-
-        <!-- AI chat (multi-turn) -->
-        <div class="ai-section">
-          <div class="ai-header">
-            <h3>🤖 AI 成長顧問</h3>
-            <button id="ai-clear" class="btn-secondary btn-sm">清除對話</button>
-          </div>
-          <p class="ai-hint">只能詢問與孩子成長相關的問題（身高、體重、營養、睡眠、運動等）</p>
-          <div class="ai-examples">
-            <span>例：</span>
-            <button class="ai-example-btn">女兒身高偏低，有哪些飲食建議？</button>
-            <button class="ai-example-btn">幾歲睡前喝牛奶最有幫助？</button>
-            <button class="ai-example-btn">成長激素什麼時候分泌最多？</button>
-          </div>
-          <!-- Conversation thread -->
-          <div id="ai-thread" class="ai-thread">
-            <p class="ai-thread-empty">開始詢問孩子成長相關問題</p>
-          </div>
-          <div id="ai-loading" class="ai-loading hidden">AI 正在思考中…</div>
-          <div id="ai-error" class="ai-error hidden"></div>
-          <div class="ai-input-row">
-            <textarea id="ai-question" placeholder="輸入問題… (Cmd+Enter 送出，最多 300 字)" rows="2" maxlength="300"></textarea>
-            <button id="ai-submit" class="btn-primary">送出</button>
-          </div>
-        </div>
-
-        <!-- Measurement history -->
-        <div class="history-section">
-          <h3>測量記錄</h3>
-          <div class="table-container">
-            <table id="measure-table" class="measure-table">
-              <thead>
-                <tr>
-                  <th>日期</th>
-                  <th>年齡</th>
-                  <th>身高 (cm)</th>
-                  <th>體重 (kg)</th>
-                  <th>身高百分位</th>
-                  <th>體重百分位</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody id="measure-tbody"></tbody>
-            </table>
-          </div>
-          <p id="no-measures" class="no-data">尚無測量記錄</p>
         </div>
       </div>
     </main>
+  </div>
+
+  <!-- Feature 3: Percentile explanation modal -->
+  <div id="pct-modal-backdrop" class="modal-backdrop hidden">
+    <div class="modal-box" role="dialog" aria-modal="true">
+      <button id="pct-modal-close" class="modal-close" aria-label="關閉">×</button>
+      <h3 id="pct-modal-title" class="modal-title"></h3>
+      <p id="pct-modal-body" class="modal-body"></p>
+      <p class="modal-note">比起數字高低，孩子穩定地沿著自己的曲線成長才是最健康的表現。</p>
+    </div>
   </div>
 
   <script src="app.js"></script>

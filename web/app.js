@@ -9,6 +9,7 @@ const state = {
   chart: null,
   curves: null,
   editingChildId: null, // null = create, else = edit
+  activeTab: 'growth',  // 'growth' | 'ai'
 };
 
 /* ─── Helpers ────────────────────────────────────────────────────────────────── */
@@ -39,7 +40,7 @@ function formatAge(months) {
 function percentileBadge(pct) {
   if (pct === null || pct === undefined) return '<span class="badge badge-gray">—</span>';
   const cls = pct < 10 ? 'badge-red' : pct < 25 ? 'badge-yellow' : 'badge-green';
-  return `<span class="badge ${cls}">P${pct}</span>`;
+  return `<span class="badge ${cls} badge-clickable" data-pct="${pct}" title="點擊了解更多">P${pct}</span>`;
 }
 
 function childAvatar(gender) {
@@ -70,9 +71,14 @@ const api = {
   getMeasurements: (cid) => apiFetch(`/api/children/${cid}/measurements`),
   addMeasurement: (cid, d) => apiFetch(`/api/children/${cid}/measurements`, { method: 'POST', body: JSON.stringify(d) }),
   deleteMeasurement: (cid, mid) => apiFetch(`/api/children/${cid}/measurements/${mid}`, { method: 'DELETE' }),
-  getCurves: (gender, type) => apiFetch(`/api/curves?gender=${gender}&type=${type}&from=0&to=96&step=3`),
+  getCurves: (gender, type) => {
+    const to = type === 'height' ? 216 : 120;
+    return apiFetch(`/api/curves?gender=${gender}&type=${type}&from=0&to=${to}&step=6`);
+  },
   getPercentile: (d) => apiFetch('/api/percentile', { method: 'POST', body: JSON.stringify(d) }),
   predict: (d) => apiFetch('/api/predict', { method: 'POST', body: JSON.stringify(d) }),
+  getAIHistory: (cid) => apiFetch(`/api/children/${cid}/ai-history`),
+  clearAIHistory: (cid) => apiFetch(`/api/children/${cid}/ai-history`, { method: 'DELETE' }),
 };
 
 /* ─── DOM refs ────────────────────────────────────────────────────────────────── */
@@ -86,6 +92,8 @@ const el = {
   cfName: $('cf-name'),
   cfGender: $('cf-gender'),
   cfBirth: $('cf-birth'),
+  cfFatherHeight: $('cf-father-height'),
+  cfMotherHeight: $('cf-mother-height'),
   childName: $('child-name'),
   childMeta: $('child-meta'),
   statsRow: $('stats-row'),
@@ -103,11 +111,33 @@ $('btn-add-child-main').addEventListener('click', () => openChildForm());
 $('cf-cancel').addEventListener('click', closeChildForm);
 $('cf-save').addEventListener('click', saveChild);
 $('btn-add-measure').addEventListener('click', addMeasurement);
+
+// Dropdown More Actions Menu
+const moreActionsBtn = $('btn-more-actions');
+const moreActionsMenu = $('more-actions-menu');
+
+if (moreActionsBtn && moreActionsMenu) {
+  moreActionsBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    moreActionsMenu.classList.toggle('hidden');
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!moreActionsMenu.classList.contains('hidden') && !moreActionsMenu.contains(e.target) && e.target !== moreActionsBtn) {
+      moreActionsMenu.classList.add('hidden');
+    }
+  });
+}
+
 $('btn-edit-child').addEventListener('click', () => {
+  if (moreActionsMenu) moreActionsMenu.classList.add('hidden');
   const child = state.children.find(c => c.id === state.selectedId);
   if (child) openChildForm(child);
 });
-$('btn-delete-child').addEventListener('click', deleteChild);
+$('btn-delete-child').addEventListener('click', () => {
+  if (moreActionsMenu) moreActionsMenu.classList.add('hidden');
+  deleteChild();
+});
 
 document.querySelectorAll('.toggle-btn').forEach(btn => {
   btn.addEventListener('click', async () => {
@@ -126,6 +156,8 @@ function openChildForm(child = null) {
   el.cfName.value = child ? child.name : '';
   el.cfGender.value = child ? child.gender : 'male';
   el.cfBirth.value = child ? child.birthDate : '';
+  el.cfFatherHeight.value = child?.fatherHeight ?? '';
+  el.cfMotherHeight.value = child?.motherHeight ?? '';
   el.childForm.classList.remove('hidden');
   el.cfName.focus();
 
@@ -148,6 +180,8 @@ async function saveChild() {
     name: el.cfName.value.trim(),
     gender: el.cfGender.value,
     birthDate: el.cfBirth.value,
+    fatherHeight: el.cfFatherHeight.value ? parseFloat(el.cfFatherHeight.value) : null,
+    motherHeight: el.cfMotherHeight.value ? parseFloat(el.cfMotherHeight.value) : null,
   };
   if (!data.name || !data.birthDate) {
     alert('請填寫姓名和出生日期');
@@ -211,11 +245,24 @@ async function selectChild(id) {
   const child = state.children.find(c => c.id === id);
   if (!child) return;
 
-  state.measurements = await api.getMeasurements(id);
+  const [measurements, historyMsgs] = await Promise.all([
+    api.getMeasurements(id),
+    api.getAIHistory(id).catch(() => []),
+  ]);
+  state.measurements = measurements;
+
+  // Populate client cache from DB (source of truth), preserve timestamps
+  chatHistories[id] = historyMsgs.map(m => ({ role: m.role, content: m.content, createdAt: m.createdAt }));
+
   renderChildrenList();
   showEmptyOrDashboard();
   renderDashboard(child);
   resetAIChat();
+
+  const moreActionsMenu = $('more-actions-menu');
+  if (moreActionsMenu) {
+    moreActionsMenu.classList.add('hidden');
+  }
 
   if (state.closeSidebar) {
     state.closeSidebar();
@@ -240,7 +287,9 @@ async function renderDashboard(child) {
   el.childMeta.textContent = `${child.gender === 'male' ? '男' : '女'} · 出生 ${child.birthDate} · 目前 ${formatAge(months)}`;
 
   await renderStats(child);
-  await renderChart();
+  if (state.activeTab === 'growth') {
+    await renderChart();
+  }
   renderMeasurementTable(child);
 }
 
@@ -250,6 +299,8 @@ async function renderStats(child) {
   const latest = ms[ms.length - 1];
   if (!latest) {
     el.statsRow.innerHTML = '<p class="no-data">新增第一筆測量來查看統計</p>';
+    $('growth-alert').classList.add('hidden');
+    $('lifestyle-cards').classList.add('hidden');
     return;
   }
 
@@ -283,6 +334,9 @@ async function renderStats(child) {
     } catch (_) {}
   }
 
+  // Feature 1: MPH
+  const mph = calcMPH(child);
+
   el.statsRow.innerHTML = `
     ${latest.height ? `
     <div class="stat-card">
@@ -308,7 +362,19 @@ async function renderStats(child) {
       <div class="stat-value">${adultPred} <small>cm</small></div>
       <div class="stat-sub">基於線性回歸</div>
     </div>` : ''}
+    ${mph ? `
+    <div class="stat-card">
+      <div class="stat-label">遺傳靶身高</div>
+      <div class="stat-value">${mph.mid.toFixed(1)} <small>cm</small></div>
+      <div class="stat-sub">±${child.gender === 'male' ? '7.5' : '6.0'} cm 範圍 (${mph.low.toFixed(1)}–${mph.high.toFixed(1)})</div>
+    </div>` : ''}
   `;
+
+  // Feature 2: deviation alert (async, non-blocking)
+  checkGrowthDeviation(child, ms);
+
+  // Feature 4: lifestyle cards
+  renderLifestyleCards(ageInMonths(child.birthDate), hPct);
 }
 
 /* ─── Chart ──────────────────────────────────────────────────────────────────── */
@@ -322,6 +388,7 @@ function destroyChart() {
 async function renderChart() {
   const child = state.children.find(c => c.id === state.selectedId);
   if (!child) return;
+  const mph = state.type === 'height' ? calcMPH(child) : null;
 
   destroyChart();
 
@@ -342,13 +409,15 @@ async function renderChart() {
     y: state.type === 'height' ? m.height : m.weight,
   }));
 
-  // Prediction
+  // Prediction — extend to 216 (age 18) when MPH target is present so the
+  // prediction line visually connects to the genetic target zone.
+  const predictUpTo = mph ? 216 : 120;
   let predPoints = [];
   if (childPoints.length >= 2) {
     try {
       const predRes = await api.predict({
         points: childPoints.map(p => ({ ageMonths: p.x, value: p.y })),
-        predictUpTo: 120,
+        predictUpTo,
       });
       predPoints = predRes.predictions.map(p => ({ x: p.ageMonths, y: p.value }));
     } catch (_) {}
@@ -389,6 +458,32 @@ async function renderChart() {
       tension: 0.3,
       fill: false,
     }] : []),
+    // Feature 1: MPH target zone — two horizontal reference lines at age 18 (216 months)
+    // Upper bound (mid + offset): amber dashed line with fill down to lower bound
+    ...(mph ? [
+      {
+        label: '遺傳靶身高上限',
+        data: [{ x: 0, y: mph.high }, { x: 216, y: mph.high }],
+        borderColor: 'rgba(245, 158, 11, 0.6)',
+        backgroundColor: 'rgba(245, 158, 11, 0.08)',
+        borderWidth: 1.5,
+        borderDash: [5, 4],
+        pointRadius: 0,
+        tension: 0,
+        fill: '+1',   // fill down to the next dataset (lower bound)
+      },
+      {
+        label: '遺傳靶身高下限',
+        data: [{ x: 0, y: mph.low }, { x: 216, y: mph.low }],
+        borderColor: 'rgba(245, 158, 11, 0.6)',
+        backgroundColor: 'rgba(245, 158, 11, 0.08)',
+        borderWidth: 1.5,
+        borderDash: [5, 4],
+        pointRadius: 0,
+        tension: 0,
+        fill: false,
+      },
+    ] : []),
   ];
 
   const ctx = $('growth-chart').getContext('2d');
@@ -427,15 +522,26 @@ async function renderChart() {
       plugins: {
         legend: {
           labels: {
-            filter: (item) => !['P90','P10','P75','P25'].includes(item.text),
+            filter: (item) => !['P90','P10','P75','P25','遺傳靶身高下限'].includes(item.text),
             color: '#64748b',
             font: { size: 12 },
           },
         },
         tooltip: {
           callbacks: {
-            title: (items) => `${items[0].parsed.x} 個月 (${formatAge(items[0].parsed.x)})`,
+            title: (items) => {
+              // WHO curves have data every 3 months — their x snaps to 0,3,6,...
+              // Prefer x from child/prediction dataset which has the actual age.
+              const whoLabels = new Set(['P97','P90','P75','P50','P25','P10','P3']);
+              const precise = items.find(i => !whoLabels.has(i.dataset.label));
+              const x = Math.round((precise ?? items[0]).parsed.x);
+              return `${x} 個月 (${formatAge(x)})`;
+            },
             label: (item) => {
+              if (item.dataset.label === '遺傳靶身高下限') return null;
+              if (item.dataset.label === '遺傳靶身高上限') {
+                return `遺傳靶身高: ${mph ? mph.low.toFixed(1) : ''}–${mph ? mph.high.toFixed(1) : ''} cm`;
+              }
               const unit = state.type === 'height' ? 'cm' : 'kg';
               return `${item.dataset.label}: ${item.parsed.y} ${unit}`;
             },
@@ -557,17 +663,33 @@ function getChatHistory() {
 function appendHistory(role, content) {
   if (!state.selectedId) return;
   if (!chatHistories[state.selectedId]) chatHistories[state.selectedId] = [];
-  chatHistories[state.selectedId].push({ role, content });
-  // Sliding window — keep last 10 turns client-side too
-  if (chatHistories[state.selectedId].length > 10) {
-    chatHistories[state.selectedId] = chatHistories[state.selectedId].slice(-10);
-  }
+  chatHistories[state.selectedId].push({ role, content, createdAt: new Date().toISOString() });
 }
 
-function clearChatHistory() {
+async function clearChatHistory() {
   if (!state.selectedId) return;
+  try {
+    await api.clearAIHistory(state.selectedId);
+  } catch (e) {
+    alert('清除失敗：' + e.message);
+    return;
+  }
   chatHistories[state.selectedId] = [];
   renderChatMessages();
+}
+
+function formatMsgDate(isoStr) {
+  if (!isoStr) return '';
+  const d = new Date(isoStr);
+  return `${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日`;
+}
+
+function formatMsgTime(isoStr) {
+  if (!isoStr) return '';
+  const d = new Date(isoStr);
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  return `${hh}:${mm}`;
 }
 
 function renderChatMessages() {
@@ -578,17 +700,195 @@ function renderChatMessages() {
     thread.innerHTML = '<p class="ai-thread-empty">開始詢問孩子成長相關問題</p>';
     return;
   }
-  thread.innerHTML = history.map(m => `
-    <div class="ai-msg ai-msg-${m.role}">
-      <div class="ai-msg-label">${m.role === 'user' ? '你' : 'AI 顧問'}</div>
-      <div class="ai-msg-content">${escapeHtml(m.content)}</div>
-    </div>`).join('');
+
+  let lastDate = '';
+  const parts = [];
+  history.forEach(m => {
+    const dateLabel = formatMsgDate(m.createdAt);
+    if (dateLabel && dateLabel !== lastDate) {
+      parts.push(`<div class="ai-date-divider"><span>${dateLabel}</span></div>`);
+      lastDate = dateLabel;
+    }
+    const timeLabel = formatMsgTime(m.createdAt);
+    parts.push(`
+      <div class="ai-msg ai-msg-${m.role}">
+        <div class="ai-msg-label">${m.role === 'user' ? '你' : 'AI 顧問'}${timeLabel ? ` <span class="ai-msg-time">${timeLabel}</span>` : ''}</div>
+        <div class="ai-msg-content">${escapeHtml(m.content)}</div>
+      </div>`);
+  });
+
+  thread.innerHTML = parts.join('');
   thread.scrollTop = thread.scrollHeight;
 }
 
 function escapeHtml(str) {
   return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
             .replace(/\n/g,'<br>');
+}
+
+/* ─── Feature 3: Percentile modal ────────────────────────────────────────────── */
+function pctModalText(pct) {
+  const p = Math.round(pct);
+  let range, feel;
+  if (p <= 3)       { range = '低於 P3（後 3%）'; feel = '屬於同齡中較矮小的範圍，建議持續追蹤，若持續偏低可諮詢兒科醫師。'; }
+  else if (p <= 10) { range = `P${p}（後 ${p}%）`; feel = '偏低，但仍在正常範圍內。成長是一段連續的過程，只要持續沿著自己的曲線前進，就是健康的。'; }
+  else if (p <= 25) { range = `P${p}`; feel = '中低，完全正常。身材偏小通常受遺傳影響，和「不健康」沒有關係。'; }
+  else if (p <= 75) { range = `P${p}（中間 50%）`; feel = '屬於人群的中間範圍，非常理想。'; }
+  else if (p <= 90) { range = `P${p}`; feel = '中高，完全正常。'; }
+  else if (p <= 97) { range = `P${p}（前 ${100-p}%）`; feel = '偏高，正常範圍。若增長速度非常快，可留意是否有性早熟跡象。'; }
+  else              { range = '高於 P97（前 3%）'; feel = '屬於同齡中最高大的群體。若增長速度異常快，建議諮詢兒科醫師。'; }
+  return { range, feel };
+}
+
+function initPctModal() {
+  const backdrop = $('pct-modal-backdrop');
+  const closeBtn = $('pct-modal-close');
+  const title    = $('pct-modal-title');
+  const body     = $('pct-modal-body');
+
+  document.addEventListener('click', (e) => {
+    const badge = e.target.closest('[data-pct]');
+    if (!badge) return;
+    const pct = parseFloat(badge.dataset.pct);
+    const { range, feel } = pctModalText(pct);
+    title.textContent = `百分位 ${range}`;
+    body.textContent  = `在 100 位相同年齡、性別的孩子中，您的孩子排在第 ${Math.round(pct)} 名。${feel}`;
+    backdrop.classList.remove('hidden');
+  });
+  const close = () => backdrop.classList.add('hidden');
+  closeBtn.addEventListener('click', close);
+  backdrop.addEventListener('click', (e) => { if (e.target === backdrop) close(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+}
+
+/* ─── Feature 2: Growth deviation alert ─────────────────────────────────────── */
+const PCT_BANDS = [3, 10, 25, 50, 75, 90, 97];
+
+function bandsCrossed(oldPct, newPct) {
+  if (oldPct === null || newPct === null) return 0;
+  const lo = Math.min(oldPct, newPct), hi = Math.max(oldPct, newPct);
+  return PCT_BANDS.filter(b => lo < b && b < hi).length;
+}
+
+function showGrowthAlert(msgs) {
+  const el = $('growth-alert');
+  if (!msgs || msgs.length === 0) { el.classList.add('hidden'); return; }
+  const isRed = msgs.some(m => m.red);
+  el.className = 'growth-alert' + (isRed ? ' alert-red' : '');
+  el.innerHTML = `
+    <div class="growth-alert-icon">${isRed ? '🚨' : '⚠️'}</div>
+    <div class="growth-alert-body">
+      <div class="growth-alert-title">成長軌跡提醒</div>
+      <div class="growth-alert-text">
+        ${msgs.map(m => `• ${m.text}`).join('<br>')}
+        <br><br>請別緊張，成長速度受短期因素（感冒、季節）影響很常見。建議持續觀察 3 個月，若趨勢持續，可尋求「小兒內分泌科」或「兒童生長發育門診」諮詢。
+      </div>
+    </div>`;
+}
+
+async function checkGrowthDeviation(child, measurements) {
+  const ms = [...measurements].sort((a, b) => a.date < b.date ? -1 : 1);
+  if (ms.length < 2) { showGrowthAlert([]); return; }
+
+  const alerts = [];
+
+  // Get last two height measurements for band crossing check
+  const hMs = ms.filter(m => m.height);
+  if (hMs.length >= 2) {
+    const prev = hMs[hMs.length - 2];
+    const curr = hMs[hMs.length - 1];
+    try {
+      const [prevPct, currPct] = await Promise.all([
+        api.getPercentile({ gender: child.gender, ageMonths: ageAtDate(child.birthDate, prev.date), height: prev.height, weight: prev.weight || 0 }),
+        api.getPercentile({ gender: child.gender, ageMonths: ageAtDate(child.birthDate, curr.date), height: curr.height, weight: curr.weight || 0 }),
+      ]);
+      const crossed = bandsCrossed(prevPct.heightPercentile, currPct.heightPercentile);
+      if (crossed >= 2) {
+        const dir = currPct.heightPercentile < prevPct.heightPercentile ? '下滑' : '上升（留意性早熟）';
+        alerts.push({ red: true, text: `身高百分位從 P${Math.round(prevPct.heightPercentile)} ${dir}至 P${Math.round(currPct.heightPercentile)}，跨越 ${crossed} 條曲線帶。` });
+      }
+    } catch (_) {}
+  }
+
+  // Annual growth rate < 4 cm check (age > 48 months)
+  const ageNow = ageInMonths(child.birthDate);
+  if (ageNow >= 48 && hMs.length >= 2) {
+    try {
+      const pts = hMs.map(m => ({ ageMonths: ageAtDate(child.birthDate, m.date), value: m.height }));
+      const pred = await api.predict({ points: pts, predictUpTo: ageNow + 1 });
+      if (pred.slope !== undefined && pred.slope * 12 < 4) {
+        alerts.push({ red: false, text: `估計年化身高增長約 ${(pred.slope * 12).toFixed(1)} cm，低於學齡期建議的 4 cm/年。` });
+      }
+    } catch (_) {}
+  }
+
+  showGrowthAlert(alerts);
+}
+
+/* ─── Feature 1: MPH calculation ────────────────────────────────────────────── */
+function calcMPH(child) {
+  const f = child.fatherHeight, m = child.motherHeight;
+  if (!f || !m) return null;
+  if (child.gender === 'male') {
+    const mid = (f + m + 13) / 2;
+    return { low: mid - 7.5, mid, high: mid + 7.5 };
+  } else {
+    const mid = (f + m - 13) / 2;
+    return { low: mid - 6.0, mid, high: mid + 6.0 };
+  }
+}
+
+/* ─── Feature 4: Lifestyle advisor cards ────────────────────────────────────── */
+function renderLifestyleCards(ageMonths, hPct) {
+  const container = $('lifestyle-cards');
+
+  // Sleep
+  let sleepHrs, bedtime;
+  if (ageMonths < 12)       { sleepHrs = '12–16 小時'; bedtime = '晚上 8 點前'; }
+  else if (ageMonths < 24)  { sleepHrs = '11–14 小時'; bedtime = '晚上 8–9 點'; }
+  else if (ageMonths < 72)  { sleepHrs = '10–13 小時'; bedtime = '晚上 9 點前'; }
+  else if (ageMonths < 144) { sleepHrs = '9–11 小時';  bedtime = '晚上 9–10 點'; }
+  else                       { sleepHrs = '8–10 小時';  bedtime = '晚上 10 點前'; }
+
+  // Exercise
+  let exercise;
+  if (ageMonths < 36)       exercise = '每天 3 小時活動性遊戲（爬行、走路、跑跳）';
+  else if (ageMonths < 72)  exercise = '每天至少 1 小時中高強度活動：跳繩、跑步、游泳';
+  else if (ageMonths < 144) exercise = '每天 60 分鐘高衝擊運動：跳繩、籃球、彈跳床（促進骨骼縱向生長）';
+  else                       exercise = '每週 3–5 次有氧＋跳躍運動（如跳繩、排球），避免過度重訓';
+
+  // Nutrition
+  let calcium, note;
+  if (ageMonths < 36)       { calcium = '700 mg/天'; note = '母乳或配方奶為主，開始添加副食品'; }
+  else if (ageMonths < 96)  { calcium = '1000 mg/天'; note = '每日 2 杯牛奶（約 500 mL），豆腐、深色蔬菜補充'; }
+  else                       { calcium = '1300 mg/天'; note = '每日 3 杯牛奶，避免高糖飲料（抑制生長激素分泌 2 小時）'; }
+
+  const pctNote = hPct !== null && hPct < 25 ? '⚠️ 蛋白質攝取要足夠：每公斤體重約 1.5 g/天' : '蛋白質每公斤體重約 1.2 g/天';
+
+  container.innerHTML = `
+    <div class="lc-card">
+      <div class="lc-card-header"><span class="lc-card-icon">😴</span>睡眠建議</div>
+      <div class="lc-card-tag">生長激素 22:00–02:00 分泌最旺</div>
+      <div class="lc-card-body">
+        每日睡眠：<strong>${sleepHrs}</strong><br>
+        建議就寢時間：<strong>${bedtime}</strong><br>
+        確保深層睡眠涵蓋晚上 10 點至凌晨 2 點的黃金期。
+      </div>
+    </div>
+    <div class="lc-card">
+      <div class="lc-card-header"><span class="lc-card-icon">🏃</span>運動建議</div>
+      <div class="lc-card-tag">高衝擊運動刺激骨骼生長</div>
+      <div class="lc-card-body">${exercise}</div>
+    </div>
+    <div class="lc-card">
+      <div class="lc-card-header"><span class="lc-card-icon">🥗</span>營養建議</div>
+      <div class="lc-card-tag">鈣質 ${calcium}</div>
+      <div class="lc-card-body">
+        ${note}<br>
+        ${pctNote}
+      </div>
+    </div>`;
+  container.classList.remove('hidden');
 }
 
 function initAIChat() {
@@ -631,14 +931,11 @@ async function askAI() {
   renderChatMessages();
 
   try {
-    // Send history BEFORE the new message (backend appends it)
-    const historyToSend = getChatHistory().slice(0, -1); // exclude the just-appended user msg
     const res = await apiFetch('/api/ai/ask', {
       method: 'POST',
       body: JSON.stringify({
         childId: state.selectedId,
         question,
-        history: historyToSend,
       }),
     });
     appendHistory('assistant', res.answer);
@@ -687,6 +984,47 @@ function initMobileSidebar() {
   state.closeSidebar = closeSidebar;
 }
 
+/* ─── Tab Switcher ───────────────────────────────────────────────────────────── */
+function initTabSwitcher() {
+  const navItems = document.querySelectorAll('.nav-item');
+  const tabs = {
+    growth: $('tab-content-growth'),
+    ai: $('tab-content-ai'),
+  };
+
+  navItems.forEach(item => {
+    item.addEventListener('click', () => {
+      // Toggle active states on menu items
+      navItems.forEach(n => n.classList.remove('active'));
+      item.classList.add('active');
+
+      const targetTab = item.dataset.tab;
+      state.activeTab = targetTab;
+
+      // Show/hide correct tab content panel
+      Object.keys(tabs).forEach(key => {
+        if (tabs[key]) {
+          if (key === targetTab) {
+            tabs[key].classList.remove('hidden');
+          } else {
+            tabs[key].classList.add('hidden');
+          }
+        }
+      });
+
+      // Render chart only when entering the growth tab to avoid sizing issues on hidden canvases
+      if (targetTab === 'growth') {
+        renderChart();
+      }
+
+      // Close mobile sidebar if open
+      if (state.closeSidebar) {
+        state.closeSidebar();
+      }
+    });
+  });
+}
+
 /* ─── Init ───────────────────────────────────────────────────────────────────── */
 async function init() {
   // Set date input default to today
@@ -694,6 +1032,8 @@ async function init() {
 
   initAIChat();
   initMobileSidebar();
+  initTabSwitcher();
+  initPctModal();
 
   try {
     state.children = await api.getChildren();

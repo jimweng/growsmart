@@ -15,10 +15,12 @@ type DB struct {
 
 // Child represents a child record.
 type Child struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Gender    string `json:"gender"`
-	BirthDate string `json:"birthDate"` // YYYY-MM-DD
+	ID           string   `json:"id"`
+	Name         string   `json:"name"`
+	Gender       string   `json:"gender"`
+	BirthDate    string   `json:"birthDate"` // YYYY-MM-DD
+	FatherHeight *float64 `json:"fatherHeight"`
+	MotherHeight *float64 `json:"motherHeight"`
 }
 
 // Measurement represents a single measurement record.
@@ -61,19 +63,18 @@ func Connect() (*DB, error) {
 }
 
 // Migrate creates tables if they don't exist.
+// Each statement is a separate Exec so errors surface individually.
 func (d *DB) Migrate() error {
-	_, err := d.pool.Exec(`
-		CREATE EXTENSION IF NOT EXISTS pgcrypto;
-
-		CREATE TABLE IF NOT EXISTS children (
+	stmts := []string{
+		`CREATE EXTENSION IF NOT EXISTS pgcrypto`,
+		`CREATE TABLE IF NOT EXISTS children (
 			id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 			name       TEXT NOT NULL,
 			gender     TEXT NOT NULL CHECK (gender IN ('male','female')),
 			birth_date DATE NOT NULL,
 			created_at TIMESTAMPTZ DEFAULT NOW()
-		);
-
-		CREATE TABLE IF NOT EXISTS measurements (
+		)`,
+		`CREATE TABLE IF NOT EXISTS measurements (
 			id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 			child_id     UUID NOT NULL REFERENCES children(id) ON DELETE CASCADE,
 			measure_date DATE NOT NULL,
@@ -81,23 +82,101 @@ func (d *DB) Migrate() error {
 			weight_kg    NUMERIC(5,2),
 			created_at   TIMESTAMPTZ DEFAULT NOW(),
 			UNIQUE (child_id, measure_date)
-		);
-	`)
+		)`,
+		`CREATE TABLE IF NOT EXISTS ai_conversations (
+			id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			child_id   UUID NOT NULL REFERENCES children(id) ON DELETE CASCADE,
+			role       TEXT NOT NULL CHECK (role IN ('user','assistant')),
+			content    TEXT NOT NULL,
+			created_at TIMESTAMPTZ DEFAULT NOW()
+		)`,
+		`ALTER TABLE children ADD COLUMN IF NOT EXISTS father_height NUMERIC(5,1)`,
+		`ALTER TABLE children ADD COLUMN IF NOT EXISTS mother_height NUMERIC(5,1)`,
+	}
+	for _, s := range stmts {
+		if _, err := d.pool.Exec(s); err != nil {
+			return fmt.Errorf("migrate %q: %w", s[:min(len(s), 40)], err)
+		}
+	}
+	return nil
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// ─── AI Conversations ──────────────────────────────────────────────────────────
+
+// ConversationMessage is a single AI chat turn stored in the DB.
+type ConversationMessage struct {
+	ID        string `json:"id"`
+	ChildID   string `json:"childId"`
+	Role      string `json:"role"`
+	Content   string `json:"content"`
+	CreatedAt string `json:"createdAt"`
+}
+
+func (d *DB) SaveAIMessage(childID, role, content string) error {
+	_, err := d.pool.Exec(
+		`INSERT INTO ai_conversations (child_id, role, content) VALUES ($1,$2,$3)`,
+		childID, role, content,
+	)
+	return err
+}
+
+// ListAIConversation returns all messages for a child, oldest first.
+func (d *DB) ListAIConversation(childID string) ([]ConversationMessage, error) {
+	rows, err := d.pool.Query(
+		`SELECT id, child_id, role, content, TO_CHAR(created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"')
+		 FROM ai_conversations WHERE child_id=$1 ORDER BY created_at`,
+		childID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var msgs []ConversationMessage
+	for rows.Next() {
+		var m ConversationMessage
+		if err := rows.Scan(&m.ID, &m.ChildID, &m.Role, &m.Content, &m.CreatedAt); err != nil {
+			return nil, err
+		}
+		msgs = append(msgs, m)
+	}
+	if msgs == nil {
+		msgs = []ConversationMessage{}
+	}
+	return msgs, nil
+}
+
+func (d *DB) ClearAIConversation(childID string) error {
+	_, err := d.pool.Exec(`DELETE FROM ai_conversations WHERE child_id=$1`, childID)
 	return err
 }
 
 // ─── Children ────────────────────────────────────────────────────────────────
 
+const childSelect = `id, name, gender, TO_CHAR(birth_date,'YYYY-MM-DD'), father_height, mother_height`
+
+func scanChild(row interface{ Scan(...any) error }) (Child, error) {
+	var c Child
+	err := row.Scan(&c.ID, &c.Name, &c.Gender, &c.BirthDate, &c.FatherHeight, &c.MotherHeight)
+	return c, err
+}
+
 func (d *DB) ListChildren() ([]Child, error) {
-	rows, err := d.pool.Query(`SELECT id, name, gender, TO_CHAR(birth_date,'YYYY-MM-DD') FROM children ORDER BY created_at`)
+	rows, err := d.pool.Query(`SELECT ` + childSelect + ` FROM children ORDER BY created_at`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	var children []Child
 	for rows.Next() {
-		var c Child
-		if err := rows.Scan(&c.ID, &c.Name, &c.Gender, &c.BirthDate); err != nil {
+		c, err := scanChild(rows)
+		if err != nil {
 			return nil, err
 		}
 		children = append(children, c)
@@ -109,31 +188,30 @@ func (d *DB) ListChildren() ([]Child, error) {
 }
 
 func (d *DB) GetChild(id string) (Child, error) {
-	var c Child
-	err := d.pool.QueryRow(
-		`SELECT id, name, gender, TO_CHAR(birth_date,'YYYY-MM-DD') FROM children WHERE id=$1`, id,
-	).Scan(&c.ID, &c.Name, &c.Gender, &c.BirthDate)
+	row := d.pool.QueryRow(`SELECT `+childSelect+` FROM children WHERE id=$1`, id)
+	c, err := scanChild(row)
 	if err == sql.ErrNoRows {
 		return c, fmt.Errorf("child not found")
 	}
 	return c, err
 }
 
-func (d *DB) CreateChild(name, gender, birthDate string) (Child, error) {
-	var c Child
-	err := d.pool.QueryRow(
-		`INSERT INTO children (name, gender, birth_date) VALUES ($1,$2,$3) RETURNING id, name, gender, TO_CHAR(birth_date,'YYYY-MM-DD')`,
-		name, gender, birthDate,
-	).Scan(&c.ID, &c.Name, &c.Gender, &c.BirthDate)
-	return c, err
+func (d *DB) CreateChild(name, gender, birthDate string, fatherHeight, motherHeight *float64) (Child, error) {
+	row := d.pool.QueryRow(
+		`INSERT INTO children (name, gender, birth_date, father_height, mother_height)
+		 VALUES ($1,$2,$3,$4,$5) RETURNING `+childSelect,
+		name, gender, birthDate, fatherHeight, motherHeight,
+	)
+	return scanChild(row)
 }
 
-func (d *DB) UpdateChild(id, name, gender, birthDate string) (Child, error) {
-	var c Child
-	err := d.pool.QueryRow(
-		`UPDATE children SET name=$1, gender=$2, birth_date=$3 WHERE id=$4 RETURNING id, name, gender, TO_CHAR(birth_date,'YYYY-MM-DD')`,
-		name, gender, birthDate, id,
-	).Scan(&c.ID, &c.Name, &c.Gender, &c.BirthDate)
+func (d *DB) UpdateChild(id, name, gender, birthDate string, fatherHeight, motherHeight *float64) (Child, error) {
+	row := d.pool.QueryRow(
+		`UPDATE children SET name=$1, gender=$2, birth_date=$3, father_height=$4, mother_height=$5
+		 WHERE id=$6 RETURNING `+childSelect,
+		name, gender, birthDate, fatherHeight, motherHeight, id,
+	)
+	c, err := scanChild(row)
 	if err == sql.ErrNoRows {
 		return c, fmt.Errorf("child not found")
 	}
