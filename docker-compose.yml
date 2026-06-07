@@ -7,7 +7,7 @@ services:
       POSTGRES_PASSWORD: growsmart
       POSTGRES_DB: growsmart
     ports:
-      - "5433:5432"   # host 5433 → container 5432 (avoids conflict)
+      - "5434:5432"   # host 5434 → container 5432 (avoids conflict)
     volumes:
       - growsmart-pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -26,6 +26,7 @@ services:
       DB_PASSWORD: growsmart
       DB_NAME: growsmart
       PORT: 8090
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
     ports:
       - "8090:8090"   # host 8090 → container 8090 (avoids conflict with 8080)
     depends_on:

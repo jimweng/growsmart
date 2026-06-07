@@ -108,6 +108,17 @@ func (d *DB) ListChildren() ([]Child, error) {
 	return children, nil
 }
 
+func (d *DB) GetChild(id string) (Child, error) {
+	var c Child
+	err := d.pool.QueryRow(
+		`SELECT id, name, gender, TO_CHAR(birth_date,'YYYY-MM-DD') FROM children WHERE id=$1`, id,
+	).Scan(&c.ID, &c.Name, &c.Gender, &c.BirthDate)
+	if err == sql.ErrNoRows {
+		return c, fmt.Errorf("child not found")
+	}
+	return c, err
+}
+
 func (d *DB) CreateChild(name, gender, birthDate string) (Child, error) {
 	var c Child
 	err := d.pool.QueryRow(

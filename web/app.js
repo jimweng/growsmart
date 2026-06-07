@@ -541,10 +541,62 @@ async function deleteMeasurement(mid) {
   }
 }
 
+/* ─── AI Chat ────────────────────────────────────────────────────────────────── */
+function initAIChat() {
+  const submitBtn = $('ai-submit');
+  const questionEl = $('ai-question');
+
+  submitBtn.addEventListener('click', askAI);
+  questionEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) askAI();
+  });
+
+  document.querySelectorAll('.ai-example-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      questionEl.value = btn.textContent;
+      questionEl.focus();
+    });
+  });
+}
+
+async function askAI() {
+  if (!state.selectedId) return;
+  const questionEl = $('ai-question');
+  const question = questionEl.value.trim();
+  if (!question) { questionEl.focus(); return; }
+
+  const responseEl = $('ai-response');
+  const answerEl = $('ai-answer');
+  const loadingEl = $('ai-loading');
+  const errorEl = $('ai-error');
+
+  responseEl.classList.add('hidden');
+  errorEl.classList.add('hidden');
+  loadingEl.classList.remove('hidden');
+  $('ai-submit').disabled = true;
+
+  try {
+    const res = await apiFetch('/api/ai/ask', {
+      method: 'POST',
+      body: JSON.stringify({ childId: state.selectedId, question }),
+    });
+    answerEl.textContent = res.answer;
+    responseEl.classList.remove('hidden');
+  } catch (e) {
+    errorEl.textContent = '錯誤：' + e.message;
+    errorEl.classList.remove('hidden');
+  } finally {
+    loadingEl.classList.add('hidden');
+    $('ai-submit').disabled = false;
+  }
+}
+
 /* ─── Init ───────────────────────────────────────────────────────────────────── */
 async function init() {
   // Set date input default to today
   el.measureDate.value = new Date().toISOString().split('T')[0];
+
+  initAIChat();
 
   try {
     state.children = await api.getChildren();

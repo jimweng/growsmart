@@ -26,6 +26,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/curves", h.handleCurves)
 	mux.HandleFunc("/api/percentile", h.handlePercentile)
 	mux.HandleFunc("/api/predict", h.handlePredict)
+	mux.HandleFunc("/api/ai/ask", h.handleAskAI)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

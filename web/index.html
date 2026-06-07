@@ -101,6 +101,28 @@
           </div>
         </div>
 
+        <!-- AI chat -->
+        <div class="ai-section">
+          <h3>🤖 問 AI 顧問</h3>
+          <p class="ai-hint">只能詢問與孩子成長相關的問題（身高、體重、營養、睡眠、運動等）</p>
+          <div class="ai-examples">
+            <span>例：</span>
+            <button class="ai-example-btn">女兒身高偏低，有哪些飲食建議？</button>
+            <button class="ai-example-btn">幾歲睡前喝牛奶最有幫助？</button>
+            <button class="ai-example-btn">成長激素什麼時候分泌最多？</button>
+          </div>
+          <div class="ai-input-row">
+            <textarea id="ai-question" placeholder="請輸入問題（最多 300 字）" rows="2" maxlength="300"></textarea>
+            <button id="ai-submit" class="btn-primary">送出</button>
+          </div>
+          <div id="ai-response" class="ai-response hidden">
+            <div class="ai-response-label">AI 顧問建議</div>
+            <div id="ai-answer" class="ai-answer"></div>
+          </div>
+          <div id="ai-loading" class="ai-loading hidden">AI 正在思考中…</div>
+          <div id="ai-error" class="ai-error hidden"></div>
+        </div>
+
         <!-- Measurement history -->
         <div class="history-section">
           <h3>測量記錄</h3>
