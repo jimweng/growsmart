@@ -266,19 +266,8 @@ async function renderStats(child) {
     if (latest.weight) wPct = pctRes.weightPercentile;
   } catch (_) {}
 
-  // Growth rate (cm/year) from last two measurements
+  // Growth rate + predicted adult height via linear regression (all data points)
   let growthRate = null;
-  if (ms.length >= 2) {
-    const prev = ms[ms.length - 2];
-    if (latest.height && prev.height) {
-      const monthsDiff = ageAtDate(child.birthDate, latest.date) - ageAtDate(child.birthDate, prev.date);
-      if (monthsDiff > 0) {
-        growthRate = ((latest.height - prev.height) / monthsDiff * 12).toFixed(1);
-      }
-    }
-  }
-
-  // Predicted adult height (18y = 216 months)
   let adultPred = null;
   const hPoints = ms.filter(m => m.height).map(m => ({
     ageMonths: ageAtDate(child.birthDate, m.date),
@@ -287,6 +276,8 @@ async function renderStats(child) {
   if (hPoints.length >= 2) {
     try {
       const predRes = await api.predict({ points: hPoints, predictUpTo: 216 });
+      // slope is cm/month → ×12 = cm/year
+      if (predRes.slope) growthRate = (predRes.slope * 12).toFixed(1);
       const at18 = predRes.predictions.find(p => p.ageMonths === 216);
       if (at18) adultPred = at18.value;
     } catch (_) {}
