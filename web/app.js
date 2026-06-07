@@ -10,6 +10,7 @@ const state = {
   curves: null,
   editingChildId: null, // null = create, else = edit
   activeTab: 'growth',  // 'growth' | 'ai'
+  currentPage: 1,       // For measurement table pagination
 };
 
 /* ─── Helpers ────────────────────────────────────────────────────────────────── */
@@ -77,6 +78,7 @@ const api = {
   },
   getPercentile: (d) => apiFetch('/api/percentile', { method: 'POST', body: JSON.stringify(d) }),
   predict: (d) => apiFetch('/api/predict', { method: 'POST', body: JSON.stringify(d) }),
+  project: (d) => apiFetch('/api/project', { method: 'POST', body: JSON.stringify(d) }),
   getAIHistory: (cid) => apiFetch(`/api/children/${cid}/ai-history`),
   clearAIHistory: (cid) => apiFetch(`/api/children/${cid}/ai-history`, { method: 'DELETE' }),
 };
@@ -137,6 +139,26 @@ $('btn-edit-child').addEventListener('click', () => {
 $('btn-delete-child').addEventListener('click', () => {
   if (moreActionsMenu) moreActionsMenu.classList.add('hidden');
   deleteChild();
+});
+
+$('btn-prev-page').addEventListener('click', () => {
+  if (state.currentPage > 1) {
+    state.currentPage--;
+    const child = state.children.find(c => c.id === state.selectedId);
+    if (child) renderMeasurementTable(child);
+  }
+});
+
+$('btn-next-page').addEventListener('click', () => {
+  const child = state.children.find(c => c.id === state.selectedId);
+  if (child) {
+    const pageSize = 5;
+    const totalPages = Math.ceil(state.measurements.length / pageSize);
+    if (state.currentPage < totalPages) {
+      state.currentPage++;
+      renderMeasurementTable(child);
+    }
+  }
 });
 
 document.querySelectorAll('.toggle-btn').forEach(btn => {
@@ -242,6 +264,7 @@ function renderChildrenList() {
 async function selectChild(id) {
   state.selectedId = id;
   state.curves = null;
+  state.currentPage = 1; // Reset pagination page when switching children
   const child = state.children.find(c => c.id === id);
   if (!child) return;
 
@@ -299,8 +322,8 @@ async function renderStats(child) {
   const latest = ms[ms.length - 1];
   if (!latest) {
     el.statsRow.innerHTML = '<p class="no-data">新增第一筆測量來查看統計</p>';
-    $('growth-alert').classList.add('hidden');
-    $('lifestyle-cards').classList.add('hidden');
+    ['growth-alert','milestone-banner','lifestyle-cards','catchup-nutrition','medical-checklist']
+      .forEach(id => $(id).classList.add('hidden'));
     return;
   }
 
@@ -317,25 +340,36 @@ async function renderStats(child) {
     if (latest.weight) wPct = pctRes.weightPercentile;
   } catch (_) {}
 
-  // Growth rate + predicted adult height via linear regression (all data points)
+  // Growth rate: velocity from last two height measurements (more accurate than regression)
   let growthRate = null;
+  const hMs = ms.filter(m => m.height).sort((a, b) => a.date < b.date ? -1 : 1);
+  if (hMs.length >= 2) {
+    const prev = hMs[hMs.length - 2];
+    const prevAge = ageAtDate(child.birthDate, prev.date);
+    const months = ageM - prevAge;
+    if (months >= 3) {
+      growthRate = ((latest.height - prev.height) / months * 12).toFixed(1);
+    }
+  }
+
+  // Adult height prediction: WHO percentile tracking (maintains child's current percentile to age 18)
   let adultPred = null;
-  const hPoints = ms.filter(m => m.height).map(m => ({
-    ageMonths: ageAtDate(child.birthDate, m.date),
-    value: m.height,
-  }));
-  if (hPoints.length >= 2) {
+  if (latest.height) {
     try {
-      const predRes = await api.predict({ points: hPoints, predictUpTo: 216 });
-      // slope is cm/month → ×12 = cm/year
-      if (predRes.slope) growthRate = (predRes.slope * 12).toFixed(1);
-      const at18 = predRes.predictions.find(p => p.ageMonths === 216);
+      const projRes = await api.project({
+        gender: child.gender, type: 'height',
+        ageMonths: ageM, value: latest.height, predictUpTo: 216,
+      });
+      const at18 = projRes.predictions.find(p => p.ageMonths === 216);
       if (at18) adultPred = at18.value;
     } catch (_) {}
   }
 
   // Feature 1: MPH
   const mph = calcMPH(child);
+
+  // Phase 2: WHO expected velocity at current age
+  const expectedCmYear = whoMedianVelocityCmYear(ageM);
 
   el.statsRow.innerHTML = `
     ${latest.height ? `
@@ -351,16 +385,22 @@ async function renderStats(child) {
       <div class="stat-value">${latest.weight} <small>kg</small></div>
       ${wPct !== null ? percentileBadge(wPct) : ''}
     </div>` : ''}
-    ${growthRate !== null ? `
-    <div class="stat-card">
+    ${growthRate !== null ? (() => {
+      const gr = parseFloat(growthRate);
+      const chasing = gr >= expectedCmYear;
+      const pctAbove = chasing ? Math.round(((gr / expectedCmYear) - 1) * 100) : 0;
+      return `
+    <div class="stat-card${chasing ? ' stat-card-positive' : ''}">
       <div class="stat-label">近期成長速</div>
       <div class="stat-value">${growthRate} <small>cm/年</small></div>
-    </div>` : ''}
+      <div class="stat-sub">${chasing ? `🌱 積極追趕中！超越中位數 ${pctAbove}%` : `同齡中位數 ${expectedCmYear} cm/年`}</div>
+    </div>`;
+    })() : ''}
     ${adultPred !== null ? `
     <div class="stat-card">
       <div class="stat-label">預測成人身高</div>
       <div class="stat-value">${adultPred} <small>cm</small></div>
-      <div class="stat-sub">基於線性回歸</div>
+      <div class="stat-sub">基於 WHO 百分位追蹤</div>
     </div>` : ''}
     ${mph ? `
     <div class="stat-card">
@@ -370,11 +410,15 @@ async function renderStats(child) {
     </div>` : ''}
   `;
 
-  // Feature 2: deviation alert (async, non-blocking)
-  checkGrowthDeviation(child, ms);
+  // Alerts: deviation (Phase 1) + milestone (Phase 2) — shared percentile calls
+  checkAlerts(child, ms);
 
   // Feature 4: lifestyle cards
   renderLifestyleCards(ageInMonths(child.birthDate), hPct);
+
+  // Phase 2: catch-up cards
+  renderCatchupNutrition(hPct);
+  renderMedicalChecklist(hPct);
 }
 
 /* ─── Chart ──────────────────────────────────────────────────────────────────── */
@@ -409,30 +453,36 @@ async function renderChart() {
     y: state.type === 'height' ? m.height : m.weight,
   }));
 
-  // Prediction — extend to 216 (age 18) when MPH target is present so the
-  // prediction line visually connects to the genetic target zone.
-  const predictUpTo = mph ? 216 : 120;
+  // Prediction via WHO percentile tracking (maintains current z-score forward).
+  // Height always extends to 216 months (age 18); weight capped at 120 months.
+  const predictUpTo = state.type === 'height' ? 216 : 120;
   let predPoints = [];
-  if (childPoints.length >= 2) {
+  if (childPoints.length >= 1) {
+    const lastPt = childPoints[childPoints.length - 1];
     try {
-      const predRes = await api.predict({
-        points: childPoints.map(p => ({ ageMonths: p.x, value: p.y })),
-        predictUpTo,
+      const projRes = await api.project({
+        gender: child.gender, type: state.type,
+        ageMonths: lastPt.x, value: lastPt.y, predictUpTo,
       });
-      predPoints = predRes.predictions.map(p => ({ x: p.ageMonths, y: p.value }));
+      predPoints = projRes.predictions.map(p => ({ x: p.ageMonths, y: p.value }));
     } catch (_) {}
   }
 
-  const whoLineStyle = { pointRadius: 0, borderWidth: 1, tension: 0.4, fill: false };
+  const isMobile = window.innerWidth < 768;
+  const whoLineStyle = { pointRadius: 0, borderWidth: isMobile ? 0.8 : 1, tension: 0.4, fill: false };
 
   const datasets = [
     // WHO percentile curves (background)
     { label: 'P97', data: curves.p97.map(p => ({ x: p.x, y: p.y })), borderColor: '#94a3b8', borderDash: [4, 3], ...whoLineStyle },
-    { label: 'P90', data: curves.p90.map(p => ({ x: p.x, y: p.y })), borderColor: '#cbd5e1', ...whoLineStyle },
-    { label: 'P75', data: curves.p75.map(p => ({ x: p.x, y: p.y })), borderColor: '#94a3b8', ...whoLineStyle },
-    { label: 'P50', data: curves.p50.map(p => ({ x: p.x, y: p.y })), borderColor: '#64748b', borderWidth: 1.5, ...whoLineStyle },
-    { label: 'P25', data: curves.p25.map(p => ({ x: p.x, y: p.y })), borderColor: '#94a3b8', ...whoLineStyle },
-    { label: 'P10', data: curves.p10.map(p => ({ x: p.x, y: p.y })), borderColor: '#cbd5e1', ...whoLineStyle },
+    ...(!isMobile ? [
+      { label: 'P90', data: curves.p90.map(p => ({ x: p.x, y: p.y })), borderColor: '#cbd5e1', ...whoLineStyle },
+      { label: 'P75', data: curves.p75.map(p => ({ x: p.x, y: p.y })), borderColor: '#94a3b8', ...whoLineStyle },
+    ] : []),
+    { label: 'P50', data: curves.p50.map(p => ({ x: p.x, y: p.y })), borderColor: '#64748b', borderWidth: isMobile ? 1 : 1.5, ...whoLineStyle },
+    ...(!isMobile ? [
+      { label: 'P25', data: curves.p25.map(p => ({ x: p.x, y: p.y })), borderColor: '#94a3b8', ...whoLineStyle },
+      { label: 'P10', data: curves.p10.map(p => ({ x: p.x, y: p.y })), borderColor: '#cbd5e1', ...whoLineStyle },
+    ] : []),
     { label: 'P3',  data: curves.p3.map(p => ({ x: p.x, y: p.y })),  borderColor: '#94a3b8', borderDash: [4, 3], ...whoLineStyle },
     // Child's data
     {
@@ -440,9 +490,9 @@ async function renderChart() {
       data: childPoints,
       borderColor: color,
       backgroundColor: color,
-      borderWidth: 2.5,
-      pointRadius: 5,
-      pointHoverRadius: 7,
+      borderWidth: isMobile ? 2 : 2.5,
+      pointRadius: isMobile ? 4 : 5,
+      pointHoverRadius: isMobile ? 6 : 7,
       tension: 0.3,
       fill: false,
     },
@@ -453,8 +503,8 @@ async function renderChart() {
       borderColor: color,
       borderDash: [6, 4],
       backgroundColor: 'transparent',
-      borderWidth: 2,
-      pointRadius: 3,
+      borderWidth: isMobile ? 1.5 : 2,
+      pointRadius: isMobile ? 2 : 3,
       tension: 0.3,
       fill: false,
     }] : []),
@@ -498,33 +548,42 @@ async function renderChart() {
       scales: {
         x: {
           type: 'linear',
-          title: { display: true, text: '年齡（月）', color: '#64748b', font: { size: 12 } },
+          title: { display: !isMobile, text: '年齡（月）', color: '#64748b', font: { size: 12 } },
           ticks: {
             color: '#64748b',
+            font: { size: isMobile ? 10 : 12 },
+            maxRotation: 0,
+            autoSkip: true,
             callback: (v) => {
               if (v % 12 === 0) return `${v / 12}歲`;
-              return v % 6 === 0 ? `${v}m` : null;
+              // Hide intermediate month ticks on mobile to avoid overlapping
+              return (!isMobile && v % 6 === 0) ? `${v}m` : null;
             },
           },
-          grid: { color: '#f1f5f9' },
+          grid: { color: '#f1f5f9', display: !isMobile }, // hide vertical grid lines on mobile for cleaner view
         },
         y: {
           title: {
-            display: true,
+            display: !isMobile,
             text: state.type === 'height' ? '身高（cm）' : '體重（kg）',
             color: '#64748b',
             font: { size: 12 },
           },
-          ticks: { color: '#64748b' },
+          ticks: {
+            color: '#64748b',
+            font: { size: isMobile ? 10 : 12 },
+          },
           grid: { color: '#f1f5f9' },
         },
       },
       plugins: {
         legend: {
+          position: isMobile ? 'bottom' : 'top',
           labels: {
+            boxWidth: isMobile ? 12 : 40,
             filter: (item) => !['P90','P10','P75','P25','遺傳靶身高下限'].includes(item.text),
             color: '#64748b',
-            font: { size: 12 },
+            font: { size: isMobile ? 10 : 12 },
           },
         },
         tooltip: {
@@ -555,15 +614,39 @@ async function renderChart() {
 /* ─── Measurement table ────────────────────────────────────────────────────────── */
 function renderMeasurementTable(child) {
   const ms = [...state.measurements].sort((a, b) => b.date < a.date ? -1 : 1);
+  const paginationEl = $('table-pagination');
+
   if (ms.length === 0) {
     el.measureTable.classList.add('hidden');
     el.noMeasures.classList.remove('hidden');
+    if (paginationEl) paginationEl.classList.add('hidden');
     return;
   }
   el.measureTable.classList.remove('hidden');
   el.noMeasures.classList.add('hidden');
 
-  el.measureTbody.innerHTML = ms.map(m => {
+  // Pagination setup
+  const pageSize = 5;
+  const totalPages = Math.ceil(ms.length / pageSize);
+  if (state.currentPage > totalPages) state.currentPage = totalPages;
+  if (state.currentPage < 1) state.currentPage = 1;
+
+  // Show pagination controls only if we have more than 5 items
+  if (totalPages > 1) {
+    if (paginationEl) {
+      paginationEl.classList.remove('hidden');
+      $('page-indicator').textContent = `${state.currentPage} / ${totalPages}`;
+      $('btn-prev-page').disabled = state.currentPage === 1;
+      $('btn-next-page').disabled = state.currentPage === totalPages;
+    }
+  } else {
+    if (paginationEl) paginationEl.classList.add('hidden');
+  }
+
+  const startIdx = (state.currentPage - 1) * pageSize;
+  const paginatedMs = ms.slice(startIdx, startIdx + pageSize);
+
+  el.measureTbody.innerHTML = paginatedMs.map(m => {
     const ageM = ageAtDate(child.birthDate, m.date);
     return `<tr>
       <td>${m.date}</td>
@@ -576,8 +659,8 @@ function renderMeasurementTable(child) {
     </tr>`;
   }).join('');
 
-  // Async-fill percentile cells
-  ms.forEach(async (m) => {
+  // Async-fill percentile cells for the paginated items only
+  paginatedMs.forEach(async (m) => {
     if (!m.height && !m.weight) return;
     try {
       const ageM = ageAtDate(child.birthDate, m.date);
@@ -764,6 +847,25 @@ function initPctModal() {
 /* ─── Feature 2: Growth deviation alert ─────────────────────────────────────── */
 const PCT_BANDS = [3, 10, 25, 50, 75, 90, 97];
 
+/* ─── Phase 2: WHO median height velocity (cm/year) ─────────────────────────── */
+const WHO_VELOCITY_TABLE = [
+  { maxAge: 3,   cmPerYear: 42  },
+  { maxAge: 6,   cmPerYear: 24  },
+  { maxAge: 12,  cmPerYear: 16  },
+  { maxAge: 24,  cmPerYear: 11  },
+  { maxAge: 48,  cmPerYear: 8   },
+  { maxAge: 72,  cmPerYear: 6   },
+  { maxAge: 120, cmPerYear: 5.5 },
+  { maxAge: 216, cmPerYear: 6   },
+];
+
+function whoMedianVelocityCmYear(ageMonths) {
+  for (const row of WHO_VELOCITY_TABLE) {
+    if (ageMonths <= row.maxAge) return row.cmPerYear;
+  }
+  return 6;
+}
+
 function bandsCrossed(oldPct, newPct) {
   if (oldPct === null || newPct === null) return 0;
   const lo = Math.min(oldPct, newPct), hi = Math.max(oldPct, newPct);
@@ -786,13 +888,13 @@ function showGrowthAlert(msgs) {
     </div>`;
 }
 
-async function checkGrowthDeviation(child, measurements) {
+async function checkAlerts(child, measurements) {
   const ms = [...measurements].sort((a, b) => a.date < b.date ? -1 : 1);
-  if (ms.length < 2) { showGrowthAlert([]); return; }
+  if (ms.length < 2) { showGrowthAlert([]); showMilestoneBanner(null); return; }
 
   const alerts = [];
+  let milestoneMsg = null;
 
-  // Get last two height measurements for band crossing check
   const hMs = ms.filter(m => m.height);
   if (hMs.length >= 2) {
     const prev = hMs[hMs.length - 2];
@@ -802,15 +904,22 @@ async function checkGrowthDeviation(child, measurements) {
         api.getPercentile({ gender: child.gender, ageMonths: ageAtDate(child.birthDate, prev.date), height: prev.height, weight: prev.weight || 0 }),
         api.getPercentile({ gender: child.gender, ageMonths: ageAtDate(child.birthDate, curr.date), height: curr.height, weight: curr.weight || 0 }),
       ]);
-      const crossed = bandsCrossed(prevPct.heightPercentile, currPct.heightPercentile);
+      const oldP = prevPct.heightPercentile;
+      const newP = currPct.heightPercentile;
+      const crossed = bandsCrossed(oldP, newP);
+
       if (crossed >= 2) {
-        const dir = currPct.heightPercentile < prevPct.heightPercentile ? '下滑' : '上升（留意性早熟）';
-        alerts.push({ red: true, text: `身高百分位從 P${Math.round(prevPct.heightPercentile)} ${dir}至 P${Math.round(currPct.heightPercentile)}，跨越 ${crossed} 條曲線帶。` });
+        const dir = newP < oldP ? '下滑' : '上升（留意性早熟）';
+        alerts.push({ red: true, text: `身高百分位從 P${Math.round(oldP)} ${dir}至 P${Math.round(newP)}，跨越 ${crossed} 條曲線帶。` });
+      }
+
+      // Phase 2: upward milestone
+      if (crossed >= 1 && newP > oldP) {
+        milestoneMsg = `身高百分位從 P${Math.round(oldP)} 進步到 P${Math.round(newP)}，跨越 ${crossed} 個百分位帶，繼續保持！`;
       }
     } catch (_) {}
   }
 
-  // Annual growth rate < 4 cm check (age > 48 months)
   const ageNow = ageInMonths(child.birthDate);
   if (ageNow >= 48 && hMs.length >= 2) {
     try {
@@ -823,6 +932,7 @@ async function checkGrowthDeviation(child, measurements) {
   }
 
   showGrowthAlert(alerts);
+  showMilestoneBanner(milestoneMsg);
 }
 
 /* ─── Feature 1: MPH calculation ────────────────────────────────────────────── */
@@ -888,6 +998,66 @@ function renderLifestyleCards(ageMonths, hPct) {
         ${pctNote}
       </div>
     </div>`;
+  container.classList.remove('hidden');
+}
+
+/* ─── Phase 2: Milestone banner ─────────────────────────────────────────────── */
+function showMilestoneBanner(msg) {
+  const banner = $('milestone-banner');
+  if (!msg) { banner.classList.add('hidden'); return; }
+  banner.innerHTML = `
+    <div class="milestone-icon">🏆</div>
+    <div class="milestone-content">
+      <div class="milestone-title">追趕里程碑達成！</div>
+      <div class="milestone-body">${msg}</div>
+    </div>`;
+  banner.classList.remove('hidden');
+}
+
+/* ─── Phase 2: Catch-up nutrition card (hPct ≤ 15) ─────────────────────────── */
+function renderCatchupNutrition(hPct) {
+  const container = $('catchup-nutrition');
+  if (hPct === null || hPct > 15) { container.classList.add('hidden'); return; }
+  const child = state.children.find(c => c.id === state.selectedId);
+  const name = child ? child.name : '孩子';
+  container.innerHTML = `
+    <div class="catchup-header">
+      <span class="catchup-icon">🥗</span>
+      <div class="catchup-title">追趕生長營養建議 <span class="catchup-tag">身高 P${Math.round(hPct)} 以下啟用</span></div>
+    </div>
+    <ul class="catchup-list">
+      <li>優質蛋白：每公斤體重 1.5 g/天（雞蛋、鮮奶、魚肉、豆腐）</li>
+      <li>鈣質 1000–1300 mg/天：每日 2–3 杯牛奶，搭配深色蔬菜</li>
+      <li>鋅補充：牡蠣、牛肉、南瓜子，促進食慾與細胞生長</li>
+      <li>維生素 D3：400–1000 IU/天，強化鈣質吸收與骨骼延伸</li>
+      <li class="catchup-avoid">🚫 避免含糖飲料（抑制生長激素 2 小時）、油炸加工食品</li>
+    </ul>
+    <button class="catchup-ai-btn" id="btn-catchup-ai">詢問 AI 顧問個人化建議 →</button>`;
+  container.classList.remove('hidden');
+  $('btn-catchup-ai').addEventListener('click', () => {
+    $('ai-question').value = `${name} 身高百分位偏低（P${Math.round(hPct)}），請給我具體的追趕生長飲食計畫，包含每日餐點建議和應避免的食物。`;
+    document.querySelector('[data-tab="ai"]').click();
+    $('ai-question').focus();
+  });
+}
+
+/* ─── Phase 2: Medical checklist card (hPct < 3) ────────────────────────────── */
+function renderMedicalChecklist(hPct) {
+  const container = $('medical-checklist');
+  if (hPct === null || hPct >= 3) { container.classList.add('hidden'); return; }
+  container.innerHTML = `
+    <div class="catchup-header">
+      <span class="catchup-icon">🏥</span>
+      <div class="catchup-title">就醫評估建議清單 <span class="catchup-tag medical-tag">身高低於 P3</span></div>
+    </div>
+    <ul class="catchup-list">
+      <li>建議就診：<strong>小兒遺傳內分泌科</strong> 或 <strong>兒童生長發育專科門診</strong></li>
+      <li>就醫時機：4 歲以上每年身高增加不足 4 cm，或百分位持續低於 P3</li>
+      <li>醫師可能進行：拍左手 X 光，評估骨骼年齡</li>
+      <li>醫師可能進行：抽血檢測生長激素、甲狀腺素、IGF-1</li>
+      <li>請攜帶：近兩年身高體重記錄（GrowSmart 截圖即可）</li>
+    </ul>
+    <p class="medical-note">提前了解流程，就診不慌張。是否需就醫請由醫師判斷，本系統提供輔助參考。</p>`;
   container.classList.remove('hidden');
 }
 

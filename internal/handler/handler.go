@@ -26,6 +26,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/curves", h.handleCurves)
 	mux.HandleFunc("/api/percentile", h.handlePercentile)
 	mux.HandleFunc("/api/predict", h.handlePredict)
+	mux.HandleFunc("/api/project", h.handleProject)
 	mux.HandleFunc("/api/ai/ask", h.handleAskAI)
 }
 
@@ -247,6 +248,35 @@ func (h *Handler) handlePercentile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	res := growth.CalcPercentile(req.Gender, req.AgeMonths, req.Height, req.Weight)
+	writeJSON(w, 200, res)
+}
+
+// ─── /api/project ────────────────────────────────────────────────────────────
+
+func (h *Handler) handleProject(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, 405, "POST only")
+		return
+	}
+	var req struct {
+		Gender      string  `json:"gender"`
+		Type        string  `json:"type"`
+		AgeMonths   int     `json:"ageMonths"`
+		Value       float64 `json:"value"`
+		PredictUpTo int     `json:"predictUpTo"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, 400, "invalid JSON")
+		return
+	}
+	if req.AgeMonths <= 0 || req.Value <= 0 {
+		writeError(w, 400, "ageMonths and value required")
+		return
+	}
+	if req.PredictUpTo == 0 {
+		req.PredictUpTo = 216
+	}
+	res := growth.ProjectByZScore(req.Gender, req.Type, req.AgeMonths, req.Value, req.PredictUpTo)
 	writeJSON(w, 200, res)
 }
 

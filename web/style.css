@@ -904,3 +904,142 @@ body {
   border-radius: 20px;
   width: fit-content;
 }
+
+/* ─── Phase 2: Catch-up velocity — positive stat card ─── */
+.stat-card-positive {
+  background: linear-gradient(135deg, #f0fdf4, #dcfce7);
+  box-shadow: 0 0 0 1px #86efac, var(--shadow);
+}
+
+/* ─── Phase 2: Milestone banner ─── */
+.milestone-banner {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: linear-gradient(135deg, #d1fae5, #a7f3d0);
+  border: 1px solid #6ee7b7;
+  border-radius: var(--radius);
+  padding: 16px 20px;
+  margin-bottom: 16px;
+}
+.milestone-icon { font-size: 28px; flex-shrink: 0; }
+.milestone-content { flex: 1; }
+.milestone-title { font-weight: 700; color: #065f46; font-size: 15px; }
+.milestone-body { color: #047857; font-size: 13px; margin-top: 2px; }
+
+/* ─── Phase 2: Catch-up nutrition + medical checklist ─── */
+.catchup-nutrition,
+.medical-checklist {
+  border-radius: var(--radius);
+  padding: 16px 20px;
+  margin-bottom: 16px;
+  font-size: 13px;
+}
+.catchup-nutrition { background: #fffbeb; border: 1px solid #fbbf24; }
+.medical-checklist { background: #eff6ff; border: 1px solid #93c5fd; }
+
+.catchup-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.catchup-icon { font-size: 22px; flex-shrink: 0; }
+.catchup-title {
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.catchup-tag {
+  font-weight: 400;
+  font-size: 11px;
+  background: #fef3c7;
+  color: #92400e;
+  padding: 1px 7px;
+  border-radius: 20px;
+}
+.catchup-tag.medical-tag { background: #dbeafe; color: #1e40af; }
+
+.catchup-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: #374151;
+  line-height: 1.5;
+}
+.catchup-list li::before { content: '✓ '; font-weight: 700; color: #d97706; }
+.medical-checklist .catchup-list li::before { color: #3b82f6; }
+.catchup-list .catchup-avoid::before { content: '' !important; }
+
+.catchup-ai-btn {
+  background: #f59e0b;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 7px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .15s;
+}
+.catchup-ai-btn:hover { background: #d97706; }
+
+.medical-note {
+  margin-top: 10px;
+  font-size: 12px;
+  color: #3b82f6;
+  font-style: italic;
+  border-top: 1px solid #bfdbfe;
+  padding-top: 8px;
+}
+
+/* ─── Table Pagination ─── */
+.table-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.btn-page {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.15s ease;
+}
+
+.btn-page:hover:not(:disabled) {
+  background: var(--border);
+  color: var(--text);
+}
+
+.btn-page:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.page-indicator {
+  font-size: 13px;
+  color: var(--text-muted);
+  font-weight: 500;
+  min-width: 48px;
+  text-align: center;
+}
