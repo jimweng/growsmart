@@ -126,7 +126,7 @@ func callLocalCLI(ctx context.Context, systemPrompt string, messages []Message) 
 		}
 	}
 	if cliPath == "" {
-		return "", fmt.Errorf("claude CLI not found in PATH; install Claude Code or set ANTHROPIC_API_KEY")
+		return "", fmt.Errorf("claude CLI not found (app may be running inside Docker where host CLI is inaccessible); use 'make run' to run on host, or set ANTHROPIC_API_KEY")
 	}
 
 	// Format conversation history into a single prompt for -p mode.
