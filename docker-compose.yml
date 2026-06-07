@@ -1,0 +1,37 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: growsmart-db
+    environment:
+      POSTGRES_USER: growsmart
+      POSTGRES_PASSWORD: growsmart
+      POSTGRES_DB: growsmart
+    ports:
+      - "5433:5432"   # host 5433 → container 5432 (avoids conflict)
+    volumes:
+      - growsmart-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U growsmart -d growsmart"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    container_name: growsmart-app
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: growsmart
+      DB_PASSWORD: growsmart
+      DB_NAME: growsmart
+      PORT: 8090
+    ports:
+      - "8090:8090"   # host 8090 → container 8090 (avoids conflict with 8080)
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  growsmart-pgdata:

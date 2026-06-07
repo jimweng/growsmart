@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GrowSmart — 兒童成長曲線</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <div class="app">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="logo">
+        <span class="logo-icon">🌱</span>
+        <span class="logo-text">GrowSmart</span>
+      </div>
+
+      <div class="children-panel">
+        <div class="panel-header">
+          <h3>孩子</h3>
+          <button id="btn-add-child" class="btn-icon" title="新增孩子">＋</button>
+        </div>
+        <ul id="children-list" class="children-list"></ul>
+      </div>
+
+      <!-- Add/Edit child form -->
+      <div id="child-form" class="child-form hidden">
+        <h4 id="child-form-title">新增孩子</h4>
+        <label>姓名
+          <input id="cf-name" type="text" placeholder="小明" />
+        </label>
+        <label>性別
+          <select id="cf-gender">
+            <option value="male">男</option>
+            <option value="female">女</option>
+          </select>
+        </label>
+        <label>出生日期
+          <input id="cf-birth" type="date" />
+        </label>
+        <div class="form-actions">
+          <button id="cf-cancel" class="btn-secondary">取消</button>
+          <button id="cf-save" class="btn-primary">儲存</button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main content -->
+    <main class="main">
+      <!-- Empty state -->
+      <div id="empty-state" class="empty-state">
+        <div class="empty-icon">👶</div>
+        <p>先新增孩子資料開始追蹤成長</p>
+        <button id="btn-add-child-main" class="btn-primary">新增孩子</button>
+      </div>
+
+      <!-- Dashboard (hidden until a child is selected) -->
+      <div id="dashboard" class="hidden">
+        <header class="dash-header">
+          <div>
+            <h2 id="child-name">孩子</h2>
+            <p id="child-meta" class="child-meta"></p>
+          </div>
+          <div class="header-actions">
+            <button id="btn-edit-child" class="btn-secondary btn-sm">編輯</button>
+            <button id="btn-delete-child" class="btn-danger btn-sm">刪除</button>
+          </div>
+        </header>
+
+        <!-- Stats row -->
+        <div class="stats-row" id="stats-row"></div>
+
+        <!-- Chart type toggle -->
+        <div class="chart-controls">
+          <div class="toggle-group">
+            <button id="toggle-height" class="toggle-btn active" data-type="height">身高</button>
+            <button id="toggle-weight" class="toggle-btn" data-type="weight">體重</button>
+          </div>
+        </div>
+
+        <!-- Chart -->
+        <div class="chart-container">
+          <canvas id="growth-chart"></canvas>
+        </div>
+
+        <!-- Measurement input -->
+        <div class="measure-section">
+          <h3>新增測量</h3>
+          <div class="measure-form">
+            <label>日期
+              <input id="m-date" type="date" />
+            </label>
+            <label>身高 (cm)
+              <input id="m-height" type="number" step="0.1" min="30" max="200" placeholder="103.0" />
+            </label>
+            <label>體重 (kg)
+              <input id="m-weight" type="number" step="0.1" min="2" max="100" placeholder="15.5" />
+            </label>
+            <button id="btn-add-measure" class="btn-primary">新增</button>
+          </div>
+        </div>
+
+        <!-- Measurement history -->
+        <div class="history-section">
+          <h3>測量記錄</h3>
+          <table id="measure-table" class="measure-table">
+            <thead>
+              <tr>
+                <th>日期</th>
+                <th>年齡</th>
+                <th>身高 (cm)</th>
+                <th>體重 (kg)</th>
+                <th>身高百分位</th>
+                <th>體重百分位</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="measure-tbody"></tbody>
+          </table>
+          <p id="no-measures" class="no-data">尚無測量記錄</p>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
