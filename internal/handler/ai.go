@@ -11,7 +11,8 @@ import (
 )
 
 // POST /api/ai/ask
-// Body: { "childId": "uuid", "question": "string" }
+// Body: { "childId": "uuid", "question": "string", "history": [{"role":"user","content":"..."},...] }
+// Returns: { "answer": "string" }
 func (h *Handler) handleAskAI(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, 405, "POST only")
@@ -19,8 +20,9 @@ func (h *Handler) handleAskAI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		ChildID  string `json:"childId"`
-		Question string `json:"question"`
+		ChildID  string        `json:"childId"`
+		Question string        `json:"question"`
+		History  []ai.Message  `json:"history"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, 400, "invalid JSON")
@@ -36,28 +38,23 @@ func (h *Handler) handleAskAI(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "question too long (max 300 characters)")
 		return
 	}
-
-	// Prompt injection guard
 	if !ai.IsSafeQuestion(question) {
 		writeError(w, 400, "question contains invalid content")
 		return
 	}
 
-	// Load child
 	child, err := h.db.GetChild(req.ChildID)
 	if err != nil {
 		writeError(w, 404, "child not found")
 		return
 	}
 
-	// Load measurements to get latest values + percentiles
 	measurements, err := h.db.ListMeasurements(req.ChildID)
 	if err != nil {
 		writeError(w, 500, err.Error())
 		return
 	}
 
-	// Build AI context
 	ctx := ai.ChildContext{
 		Name:         child.Name,
 		Gender:       child.Gender,
@@ -72,15 +69,15 @@ func (h *Handler) handleAskAI(w http.ResponseWriter, r *http.Request) {
 
 		if latest.HeightCm != nil || latest.WeightKg != nil {
 			latestAge := ageAtDateStr(child.BirthDate, latest.MeasureDate)
-			h := 0.0
+			hv := 0.0
 			if latest.HeightCm != nil {
-				h = *latest.HeightCm
+				hv = *latest.HeightCm
 			}
-			wt := 0.0
+			wv := 0.0
 			if latest.WeightKg != nil {
-				wt = *latest.WeightKg
+				wv = *latest.WeightKg
 			}
-			pct := growth.CalcPercentile(child.Gender, latestAge, h, wt)
+			pct := growth.CalcPercentile(child.Gender, latestAge, hv, wv)
 			if latest.HeightCm != nil {
 				ctx.HeightPct = &pct.HeightPercentile
 			}
@@ -90,16 +87,15 @@ func (h *Handler) handleAskAI(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	answer, err := ai.Ask(ctx, question)
+	answer, err := ai.Ask(r.Context(), ctx, req.History, question)
 	if err != nil {
-		writeError(w, 500, "AI service error: "+err.Error())
+		writeError(w, 500, "AI error: "+err.Error())
 		return
 	}
 
 	writeJSON(w, 200, map[string]string{"answer": answer})
 }
 
-// ageInMonths computes current age from a YYYY-MM-DD birth date string.
 func ageInMonths(birthDate string) int {
 	bd, err := time.Parse("2006-01-02", birthDate)
 	if err != nil {
@@ -113,7 +109,6 @@ func ageInMonths(birthDate string) int {
 	return months
 }
 
-// ageAtDateStr computes age in months at a specific measurement date.
 func ageAtDateStr(birthDate, measureDate string) int {
 	bd, err1 := time.Parse("2006-01-02", birthDate)
 	md, err2 := time.Parse("2006-01-02", measureDate)

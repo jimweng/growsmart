@@ -9,11 +9,27 @@
 </head>
 <body>
   <div class="app">
+    <!-- Mobile Header -->
+    <header class="mobile-header">
+      <button id="btn-toggle-sidebar" class="btn-menu-toggle" aria-label="選單">☰</button>
+      <div class="mobile-logo">
+        <span class="logo-icon">🌱</span>
+        <span class="logo-text">GrowSmart</span>
+      </div>
+      <div style="width: 40px;"></div> <!-- Spacer to balance layout -->
+    </header>
+
+    <!-- Sidebar Overlay -->
+    <div id="sidebar-overlay" class="sidebar-overlay"></div>
+
     <!-- Sidebar -->
     <aside class="sidebar">
       <div class="logo">
-        <span class="logo-icon">🌱</span>
-        <span class="logo-text">GrowSmart</span>
+        <div class="logo-brand">
+          <span class="logo-icon">🌱</span>
+          <span class="logo-text">GrowSmart</span>
+        </div>
+        <button id="btn-close-sidebar" class="btn-close-sidebar" title="關閉選單">×</button>
       </div>
 
       <div class="children-panel">
@@ -101,9 +117,12 @@
           </div>
         </div>
 
-        <!-- AI chat -->
+        <!-- AI chat (multi-turn) -->
         <div class="ai-section">
-          <h3>🤖 問 AI 顧問</h3>
+          <div class="ai-header">
+            <h3>🤖 AI 成長顧問</h3>
+            <button id="ai-clear" class="btn-secondary btn-sm">清除對話</button>
+          </div>
           <p class="ai-hint">只能詢問與孩子成長相關的問題（身高、體重、營養、睡眠、運動等）</p>
           <div class="ai-examples">
             <span>例：</span>
@@ -111,35 +130,37 @@
             <button class="ai-example-btn">幾歲睡前喝牛奶最有幫助？</button>
             <button class="ai-example-btn">成長激素什麼時候分泌最多？</button>
           </div>
-          <div class="ai-input-row">
-            <textarea id="ai-question" placeholder="請輸入問題（最多 300 字）" rows="2" maxlength="300"></textarea>
-            <button id="ai-submit" class="btn-primary">送出</button>
-          </div>
-          <div id="ai-response" class="ai-response hidden">
-            <div class="ai-response-label">AI 顧問建議</div>
-            <div id="ai-answer" class="ai-answer"></div>
+          <!-- Conversation thread -->
+          <div id="ai-thread" class="ai-thread">
+            <p class="ai-thread-empty">開始詢問孩子成長相關問題</p>
           </div>
           <div id="ai-loading" class="ai-loading hidden">AI 正在思考中…</div>
           <div id="ai-error" class="ai-error hidden"></div>
+          <div class="ai-input-row">
+            <textarea id="ai-question" placeholder="輸入問題… (Cmd+Enter 送出，最多 300 字)" rows="2" maxlength="300"></textarea>
+            <button id="ai-submit" class="btn-primary">送出</button>
+          </div>
         </div>
 
         <!-- Measurement history -->
         <div class="history-section">
           <h3>測量記錄</h3>
-          <table id="measure-table" class="measure-table">
-            <thead>
-              <tr>
-                <th>日期</th>
-                <th>年齡</th>
-                <th>身高 (cm)</th>
-                <th>體重 (kg)</th>
-                <th>身高百分位</th>
-                <th>體重百分位</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody id="measure-tbody"></tbody>
-          </table>
+          <div class="table-container">
+            <table id="measure-table" class="measure-table">
+              <thead>
+                <tr>
+                  <th>日期</th>
+                  <th>年齡</th>
+                  <th>身高 (cm)</th>
+                  <th>體重 (kg)</th>
+                  <th>身高百分位</th>
+                  <th>體重百分位</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="measure-tbody"></tbody>
+            </table>
+          </div>
           <p id="no-measures" class="no-data">尚無測量記錄</p>
         </div>
       </div>

@@ -128,6 +128,14 @@ function openChildForm(child = null) {
   el.cfBirth.value = child ? child.birthDate : '';
   el.childForm.classList.remove('hidden');
   el.cfName.focus();
+
+  // Open mobile sidebar drawer so the form is visible to the user
+  const sidebar = document.querySelector('.sidebar');
+  const overlay = $('sidebar-overlay');
+  if (sidebar && overlay) {
+    sidebar.classList.add('open');
+    overlay.classList.add('active');
+  }
 }
 
 function closeChildForm() {
@@ -207,6 +215,11 @@ async function selectChild(id) {
   renderChildrenList();
   showEmptyOrDashboard();
   renderDashboard(child);
+  resetAIChat();
+
+  if (state.closeSidebar) {
+    state.closeSidebar();
+  }
 }
 
 function showEmptyOrDashboard() {
@@ -541,22 +554,71 @@ async function deleteMeasurement(mid) {
   }
 }
 
-/* ─── AI Chat ────────────────────────────────────────────────────────────────── */
-function initAIChat() {
-  const submitBtn = $('ai-submit');
-  const questionEl = $('ai-question');
+/* ─── AI Chat (multi-turn) ───────────────────────────────────────────────────── */
+// Per-child conversation history: { [childId]: [{role, content}, ...] }
+const chatHistories = {};
 
-  submitBtn.addEventListener('click', askAI);
-  questionEl.addEventListener('keydown', (e) => {
+function getChatHistory() {
+  if (!state.selectedId) return [];
+  return chatHistories[state.selectedId] || [];
+}
+
+function appendHistory(role, content) {
+  if (!state.selectedId) return;
+  if (!chatHistories[state.selectedId]) chatHistories[state.selectedId] = [];
+  chatHistories[state.selectedId].push({ role, content });
+  // Sliding window — keep last 10 turns client-side too
+  if (chatHistories[state.selectedId].length > 10) {
+    chatHistories[state.selectedId] = chatHistories[state.selectedId].slice(-10);
+  }
+}
+
+function clearChatHistory() {
+  if (!state.selectedId) return;
+  chatHistories[state.selectedId] = [];
+  renderChatMessages();
+}
+
+function renderChatMessages() {
+  const thread = $('ai-thread');
+  const history = getChatHistory();
+  if (!thread) return;
+  if (history.length === 0) {
+    thread.innerHTML = '<p class="ai-thread-empty">開始詢問孩子成長相關問題</p>';
+    return;
+  }
+  thread.innerHTML = history.map(m => `
+    <div class="ai-msg ai-msg-${m.role}">
+      <div class="ai-msg-label">${m.role === 'user' ? '你' : 'AI 顧問'}</div>
+      <div class="ai-msg-content">${escapeHtml(m.content)}</div>
+    </div>`).join('');
+  thread.scrollTop = thread.scrollHeight;
+}
+
+function escapeHtml(str) {
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+            .replace(/\n/g,'<br>');
+}
+
+function initAIChat() {
+  $('ai-submit').addEventListener('click', askAI);
+  $('ai-clear').addEventListener('click', clearChatHistory);
+  $('ai-question').addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) askAI();
   });
-
   document.querySelectorAll('.ai-example-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      questionEl.value = btn.textContent;
-      questionEl.focus();
+      $('ai-question').value = btn.textContent;
+      $('ai-question').focus();
     });
   });
+}
+
+// Reset chat display when switching children
+function resetAIChat() {
+  $('ai-question').value = '';
+  $('ai-error').classList.add('hidden');
+  renderChatMessages();
 }
 
 async function askAI() {
@@ -565,24 +627,37 @@ async function askAI() {
   const question = questionEl.value.trim();
   if (!question) { questionEl.focus(); return; }
 
-  const responseEl = $('ai-response');
-  const answerEl = $('ai-answer');
   const loadingEl = $('ai-loading');
   const errorEl = $('ai-error');
 
-  responseEl.classList.add('hidden');
   errorEl.classList.add('hidden');
   loadingEl.classList.remove('hidden');
   $('ai-submit').disabled = true;
 
+  // Optimistically append user message
+  appendHistory('user', question);
+  questionEl.value = '';
+  renderChatMessages();
+
   try {
+    // Send history BEFORE the new message (backend appends it)
+    const historyToSend = getChatHistory().slice(0, -1); // exclude the just-appended user msg
     const res = await apiFetch('/api/ai/ask', {
       method: 'POST',
-      body: JSON.stringify({ childId: state.selectedId, question }),
+      body: JSON.stringify({
+        childId: state.selectedId,
+        question,
+        history: historyToSend,
+      }),
     });
-    answerEl.textContent = res.answer;
-    responseEl.classList.remove('hidden');
+    appendHistory('assistant', res.answer);
+    renderChatMessages();
   } catch (e) {
+    // Roll back optimistic user message on error
+    const h = chatHistories[state.selectedId];
+    if (h && h.length > 0 && h[h.length-1].role === 'user') h.pop();
+    questionEl.value = question;
+    renderChatMessages();
     errorEl.textContent = '錯誤：' + e.message;
     errorEl.classList.remove('hidden');
   } finally {
@@ -591,12 +666,43 @@ async function askAI() {
   }
 }
 
+/* ─── Mobile Sidebar ─────────────────────────────────────────────────────────── */
+function initMobileSidebar() {
+  const sidebar = document.querySelector('.sidebar');
+  const overlay = $('sidebar-overlay');
+  const toggleBtn = $('btn-toggle-sidebar');
+  const closeBtn = $('btn-close-sidebar');
+
+  const closeSidebar = () => {
+    if (sidebar) sidebar.classList.remove('open');
+    if (overlay) overlay.classList.remove('active');
+  };
+
+  if (toggleBtn && sidebar && overlay) {
+    toggleBtn.addEventListener('click', () => {
+      sidebar.classList.add('open');
+      overlay.classList.add('active');
+    });
+  }
+
+  if (closeBtn) {
+    closeBtn.addEventListener('click', closeSidebar);
+  }
+
+  if (overlay) {
+    overlay.addEventListener('click', closeSidebar);
+  }
+
+  state.closeSidebar = closeSidebar;
+}
+
 /* ─── Init ───────────────────────────────────────────────────────────────────── */
 async function init() {
   // Set date input default to today
   el.measureDate.value = new Date().toISOString().split('T')[0];
 
   initAIChat();
+  initMobileSidebar();
 
   try {
     state.children = await api.getChildren();
