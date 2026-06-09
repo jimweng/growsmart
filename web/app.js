@@ -9,8 +9,9 @@ const state = {
   chart: null,
   curves: null,
   editingChildId: null, // null = create, else = edit
-  activeTab: 'growth',  // 'growth' | 'ai'
+  activeTab: 'overview',  // 'overview' | 'chart' | 'logs' | 'ai'
   currentPage: 1,       // For measurement table pagination
+  ageRange: 'auto',     // 'auto' | '0-2' | '2-5' | '5-18' | 'all'
 };
 
 /* ─── Helpers ────────────────────────────────────────────────────────────────── */
@@ -52,6 +53,43 @@ function accentColor(gender) {
   return gender === 'male' ? '#3b82f6' : '#ec4899';
 }
 
+async function fetchPercentilesForMeasurements(child, measurements) {
+  await Promise.all(measurements.map(async (m) => {
+    if ((m.heightPercentile !== undefined && m.weightPercentile !== undefined) || (!m.height && !m.weight)) return;
+    try {
+      const ageM = ageAtDate(child.birthDate, m.date);
+      const pct = await api.getPercentile({
+        gender: child.gender,
+        ageMonths: ageM,
+        height: m.height || 0,
+        weight: m.weight || 0,
+      });
+      m.heightPercentile = m.height ? pct.heightPercentile : null;
+      m.weightPercentile = m.weight ? pct.weightPercentile : null;
+    } catch (_) {
+      m.heightPercentile = null;
+      m.weightPercentile = null;
+    }
+  }));
+}
+
+function interpolateCurveValue(ageMonths, curvePoints) {
+  if (!curvePoints || curvePoints.length === 0) return null;
+  if (ageMonths <= curvePoints[0].x) return curvePoints[0].y;
+  if (ageMonths >= curvePoints[curvePoints.length - 1].x) return curvePoints[curvePoints.length - 1].y;
+
+  for (let i = 0; i < curvePoints.length - 1; i++) {
+    const p1 = curvePoints[i];
+    const p2 = curvePoints[i + 1];
+    if (ageMonths >= p1.x && ageMonths <= p2.x) {
+      if (p1.x === p2.x) return p1.y;
+      const ratio = (ageMonths - p1.x) / (p2.x - p1.x);
+      return p1.y + (p2.y - p1.y) * ratio;
+    }
+  }
+  return null;
+}
+
 /* ─── API ────────────────────────────────────────────────────────────────────── */
 async function apiFetch(path, opts = {}) {
   const res = await fetch(path, {
@@ -73,8 +111,7 @@ const api = {
   addMeasurement: (cid, d) => apiFetch(`/api/children/${cid}/measurements`, { method: 'POST', body: JSON.stringify(d) }),
   deleteMeasurement: (cid, mid) => apiFetch(`/api/children/${cid}/measurements/${mid}`, { method: 'DELETE' }),
   getCurves: (gender, type) => {
-    const to = type === 'height' ? 216 : 120;
-    return apiFetch(`/api/curves?gender=${gender}&type=${type}&from=0&to=${to}&step=6`);
+    return apiFetch(`/api/curves?gender=${gender}&type=${type}&from=0&to=216&step=6`);
   },
   getPercentile: (d) => apiFetch('/api/percentile', { method: 'POST', body: JSON.stringify(d) }),
   predict: (d) => apiFetch('/api/predict', { method: 'POST', body: JSON.stringify(d) }),
@@ -161,13 +198,22 @@ $('btn-next-page').addEventListener('click', () => {
   }
 });
 
-document.querySelectorAll('.toggle-btn').forEach(btn => {
+document.querySelectorAll('.toggle-group .toggle-btn').forEach(btn => {
   btn.addEventListener('click', async () => {
-    document.querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    state.type = btn.dataset.type;
-    state.curves = null;
-    await renderChart();
+    if (btn.dataset.type) {
+      const group = btn.closest('.toggle-group');
+      group.querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      state.type = btn.dataset.type;
+      state.curves = null;
+      await renderChart();
+    } else if (btn.dataset.range) {
+      const group = btn.closest('.toggle-group');
+      group.querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      state.ageRange = btn.dataset.range;
+      await renderChart();
+    }
   });
 });
 
@@ -265,6 +311,20 @@ async function selectChild(id) {
   state.selectedId = id;
   state.curves = null;
   state.currentPage = 1; // Reset pagination page when switching children
+  state.ageRange = 'auto'; // Reset age range view to auto zoom
+  
+  // Sync UI buttons for age range group
+  const ageGroup = document.querySelector('.age-range-group');
+  if (ageGroup) {
+    ageGroup.querySelectorAll('.toggle-btn').forEach(b => {
+      if (b.dataset.range === 'auto') {
+        b.classList.add('active');
+      } else {
+        b.classList.remove('active');
+      }
+    });
+  }
+
   const child = state.children.find(c => c.id === id);
   if (!child) return;
 
@@ -272,6 +332,7 @@ async function selectChild(id) {
     api.getMeasurements(id),
     api.getAIHistory(id).catch(() => []),
   ]);
+  await fetchPercentilesForMeasurements(child, measurements);
   state.measurements = measurements;
 
   // Populate client cache from DB (source of truth), preserve timestamps
@@ -310,7 +371,7 @@ async function renderDashboard(child) {
   el.childMeta.textContent = `${child.gender === 'male' ? '男' : '女'} · 出生 ${child.birthDate} · 目前 ${formatAge(months)}`;
 
   await renderStats(child);
-  if (state.activeTab === 'growth') {
+  if (state.activeTab === 'chart') {
     await renderChart();
   }
   renderMeasurementTable(child);
@@ -340,15 +401,24 @@ async function renderStats(child) {
     if (latest.weight) wPct = pctRes.weightPercentile;
   } catch (_) {}
 
-  // Growth rate: velocity from last two height measurements (more accurate than regression)
+  // Growth rate: annualized velocity from last two height measurements.
+  // Prefer a pair >= 3 months apart for accuracy; fall back to any two measurements.
   let growthRate = null;
+  let growthRateNote = '';
   const hMs = ms.filter(m => m.height).sort((a, b) => a.date < b.date ? -1 : 1);
   if (hMs.length >= 2) {
-    const prev = hMs[hMs.length - 2];
-    const prevAge = ageAtDate(child.birthDate, prev.date);
-    const months = ageM - prevAge;
-    if (months >= 3) {
-      growthRate = ((latest.height - prev.height) / months * 12).toFixed(1);
+    // Try to find a reference point >= 3 months before the latest
+    let refIdx = hMs.length - 2;
+    for (let i = 0; i < hMs.length - 1; i++) {
+      const age = ageAtDate(child.birthDate, hMs[i].date);
+      if (ageM - age >= 3) { refIdx = i; }
+    }
+    const ref = hMs[refIdx];
+    const refAge = ageAtDate(child.birthDate, ref.date);
+    const months = ageM - refAge;
+    if (months >= 1) {
+      growthRate = ((latest.height - ref.height) / months * 12).toFixed(1);
+      if (months < 3) growthRateNote = '（測量間隔短，僅供參考）';
     }
   }
 
@@ -393,7 +463,7 @@ async function renderStats(child) {
     <div class="stat-card${chasing ? ' stat-card-positive' : ''}">
       <div class="stat-label">近期成長速</div>
       <div class="stat-value">${growthRate} <small>cm/年</small></div>
-      <div class="stat-sub">${chasing ? `🌱 積極追趕中！超越中位數 ${pctAbove}%` : `同齡中位數 ${expectedCmYear} cm/年`}</div>
+      <div class="stat-sub">${chasing ? `🌱 積極追趕中！超越中位數 ${pctAbove}%` : `同齡中位數 ${expectedCmYear} cm/年`}${growthRateNote ? `<br><span style="font-size:0.75em;opacity:0.7">${growthRateNote}</span>` : ''}</div>
     </div>`;
     })() : ''}
     ${adultPred !== null ? `
@@ -403,7 +473,7 @@ async function renderStats(child) {
       <div class="stat-sub">基於 WHO 百分位追蹤</div>
     </div>` : ''}
     ${mph ? `
-    <div class="stat-card">
+    <div class="stat-card stat-card-wide">
       <div class="stat-label">遺傳靶身高</div>
       <div class="stat-value">${mph.mid.toFixed(1)} <small>cm</small></div>
       <div class="stat-sub">±${child.gender === 'male' ? '7.5' : '6.0'} cm 範圍 (${mph.low.toFixed(1)}–${mph.high.toFixed(1)})</div>
@@ -444,21 +514,57 @@ async function renderChart() {
   const color = accentColor(child.gender);
 
   // Build child's data series
-  const ms = [...state.measurements]
+  const sortedMs = [...state.measurements]
     .sort((a, b) => a.date < b.date ? -1 : 1)
     .filter(m => state.type === 'height' ? m.height : m.weight);
 
-  const childPoints = ms.map(m => ({
-    x: ageAtDate(child.birthDate, m.date),
-    y: state.type === 'height' ? m.height : m.weight,
+  const rawPoints = [];
+  for (let i = 0; i < sortedMs.length; i++) {
+    const m = sortedMs[i];
+    const x = ageAtDate(child.birthDate, m.date);
+    const y = state.type === 'height' ? m.height : m.weight;
+    const pct = state.type === 'height' ? m.heightPercentile : m.weightPercentile;
+
+    if (rawPoints.length > 0) {
+      const prevManual = rawPoints.filter(p => p.manual).pop();
+      if (prevManual) {
+        const gap = x - prevManual.x;
+        if (gap > 12) {
+          const insertX = prevManual.x + 6;
+          const ratio = 6 / gap;
+          const insertY = prevManual.y + (y - prevManual.y) * ratio;
+          rawPoints.push({ x: insertX, y: insertY, manual: false });
+        }
+      }
+    }
+
+    rawPoints.push({ x, y, manual: true, percentile: pct });
+  }
+
+  // Fetch percentiles for any gap-predicted points in parallel
+  await Promise.all(rawPoints.map(async (p) => {
+    if (p.manual) return;
+    try {
+      const pctRes = await api.getPercentile({
+        gender: child.gender,
+        ageMonths: p.x,
+        height: state.type === 'height' ? p.y : 0,
+        weight: state.type === 'weight' ? p.y : 0,
+      });
+      p.percentile = state.type === 'height' ? pctRes.heightPercentile : pctRes.weightPercentile;
+    } catch (_) {
+      p.percentile = null;
+    }
   }));
 
+  const childPoints = rawPoints;
+
   // Prediction via WHO percentile tracking (maintains current z-score forward).
-  // Height always extends to 216 months (age 18); weight capped at 120 months.
-  const predictUpTo = state.type === 'height' ? 216 : 120;
+  const predictUpTo = 216;
   let predPoints = [];
   if (childPoints.length >= 1) {
-    const lastPt = childPoints[childPoints.length - 1];
+    const manualPoints = childPoints.filter(p => p.manual);
+    const lastPt = manualPoints[manualPoints.length - 1];
     try {
       const projRes = await api.project({
         gender: child.gender, type: state.type,
@@ -466,6 +572,30 @@ async function renderChart() {
       });
       predPoints = projRes.predictions.map(p => ({ x: p.ageMonths, y: p.value }));
     } catch (_) {}
+  }
+
+  // Auto-zoom or presets: show child's relevant age range based on selector
+  let xMin = 0;
+  let xMax = predictUpTo;
+  
+  if (state.ageRange === 'auto') {
+    const ageNow = ageInMonths(child.birthDate);
+    const manualPoints = childPoints.filter(p => p.manual);
+    const firstMeasureAge = manualPoints.length > 0 ? manualPoints[0].x : 0;
+    xMin = Math.max(0, firstMeasureAge - 6);
+    xMax = Math.min(predictUpTo, ageNow + 48);
+  } else if (state.ageRange === '0-2') {
+    xMin = 0;
+    xMax = 24;
+  } else if (state.ageRange === '2-5') {
+    xMin = 24;
+    xMax = 60;
+  } else if (state.ageRange === '5-18') {
+    xMin = 60;
+    xMax = 216;
+  } else if (state.ageRange === 'all') {
+    xMin = 0;
+    xMax = predictUpTo;
   }
 
   const isMobile = window.innerWidth < 768;
@@ -484,15 +614,38 @@ async function renderChart() {
       { label: 'P10', data: curves.p10.map(p => ({ x: p.x, y: p.y })), borderColor: '#cbd5e1', ...whoLineStyle },
     ] : []),
     { label: 'P3',  data: curves.p3.map(p => ({ x: p.x, y: p.y })),  borderColor: '#94a3b8', borderDash: [4, 3], ...whoLineStyle },
-    // Child's data
+    // Child's data (combining manual and 6-month predicted gap points)
     {
       label: child.name,
       data: childPoints,
       borderColor: color,
       backgroundColor: color,
       borderWidth: isMobile ? 2 : 2.5,
-      pointRadius: isMobile ? 4 : 5,
-      pointHoverRadius: isMobile ? 6 : 7,
+      pointRadius: (context) => {
+        const index = context.dataIndex;
+        const point = context.dataset.data[index];
+        if (!point) return 0;
+        return point.manual ? (isMobile ? 4 : 5) : (isMobile ? 3 : 4);
+      },
+      pointHoverRadius: (context) => {
+        const index = context.dataIndex;
+        const point = context.dataset.data[index];
+        if (!point) return 0;
+        return point.manual ? (isMobile ? 6 : 7) : (isMobile ? 5 : 6);
+      },
+      pointBackgroundColor: (context) => {
+        const index = context.dataIndex;
+        const point = context.dataset.data[index];
+        if (point && !point.manual) return '#ffffff';
+        return color;
+      },
+      pointBorderColor: color,
+      pointBorderWidth: (context) => {
+        const index = context.dataIndex;
+        const point = context.dataset.data[index];
+        if (point && !point.manual) return 2;
+        return 1;
+      },
       tension: 0.3,
       fill: false,
     },
@@ -543,21 +696,29 @@ async function renderChart() {
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      interaction: { mode: 'index', intersect: false },
+      interaction: { mode: 'x', intersect: false }, // match points vertically by X axis
       parsing: false,
       scales: {
         x: {
           type: 'linear',
-          title: { display: !isMobile, text: '年齡（月）', color: '#64748b', font: { size: 12 } },
+          min: xMin,
+          max: xMax,
+          title: { display: !isMobile, text: '年齡', color: '#64748b', font: { size: 12 } },
           ticks: {
             color: '#64748b',
             font: { size: isMobile ? 10 : 12 },
             maxRotation: 0,
             autoSkip: true,
             callback: (v) => {
+              const rangeMonths = xMax - xMin;
+              // Always mark year boundaries
               if (v % 12 === 0) return `${v / 12}歲`;
-              // Hide intermediate month ticks on mobile to avoid overlapping
-              return (!isMobile && v % 6 === 0) ? `${v}m` : null;
+              // Short range (0-2y): show every 3 months
+              if (rangeMonths <= 24) return v % 3 === 0 ? `${v}m` : null;
+              // Medium range (2-5y): show every 6 months on desktop
+              if (rangeMonths <= 48) return (!isMobile && v % 6 === 0) ? `${v}m` : null;
+              // Wide range (5y+): years only
+              return null;
             },
           },
           grid: { color: '#f1f5f9', display: !isMobile }, // hide vertical grid lines on mobile for cleaner view
@@ -587,21 +748,66 @@ async function renderChart() {
           },
         },
         tooltip: {
+          filter: (tooltipItem) => {
+            // Hide the lower bound target helper label from tooltip
+            if (tooltipItem.dataset.label === '遺傳靶身高下限') return false;
+            return true;
+          },
           callbacks: {
             title: (items) => {
-              // WHO curves have data every 3 months — their x snaps to 0,3,6,...
-              // Prefer x from child/prediction dataset which has the actual age.
               const whoLabels = new Set(['P97','P90','P75','P50','P25','P10','P3']);
               const precise = items.find(i => !whoLabels.has(i.dataset.label));
               const x = Math.round((precise ?? items[0]).parsed.x);
-              return `${x} 個月 (${formatAge(x)})`;
+              return formatAge(x);
             },
             label: (item) => {
               if (item.dataset.label === '遺傳靶身高下限') return null;
               if (item.dataset.label === '遺傳靶身高上限') {
                 return `遺傳靶身高: ${mph ? mph.low.toFixed(1) : ''}–${mph ? mph.high.toFixed(1) : ''} cm`;
               }
+              // Hide prediction for ages at or before the last actual measurement
+              if (item.dataset.label === '預測') {
+                const lastActualAge = childPoints.length > 0 ? childPoints[childPoints.length - 1].x : 0;
+                if (Math.round(item.parsed.x) <= lastActualAge) return null;
+                const unit = state.type === 'height' ? 'cm' : 'kg';
+                const lastManual = childPoints.filter(p => p.manual).pop();
+                const prVal = lastManual ? lastManual.percentile : null;
+                const prText = prVal !== null && prVal !== undefined ? ` (PR: P${Math.round(prVal)})` : '';
+                return `預測: ${item.parsed.y} ${unit}${prText}`;
+              }
               const unit = state.type === 'height' ? 'cm' : 'kg';
+              if (item.dataset.label === child.name) {
+                const point = item.dataset.data[item.dataIndex];
+                if (point && point.percentile !== undefined && point.percentile !== null) {
+                  const labelType = point.manual ? '' : ' (預測)';
+                  const lines = [
+                    `${item.dataset.label}${labelType}: ${item.parsed.y} ${unit} (PR: P${Math.round(point.percentile)})`
+                  ];
+                  if (state.curves) {
+                    const ageM = Math.round(item.parsed.x);
+                    const p3Val = interpolateCurveValue(ageM, state.curves.p3);
+                    const p50Val = interpolateCurveValue(ageM, state.curves.p50);
+                    const p97Val = interpolateCurveValue(ageM, state.curves.p97);
+                    
+                    if (p3Val !== null) {
+                      const diffP3 = item.parsed.y - p3Val;
+                      const sign = diffP3 >= 0 ? '+' : '';
+                      lines.push(`  ↳ 距離 P3 低標: ${sign}${diffP3.toFixed(1)} ${unit}`);
+                    }
+                    if (p50Val !== null) {
+                      const diffP50 = item.parsed.y - p50Val;
+                      const sign = diffP50 >= 0 ? '+' : '';
+                      lines.push(`  ↳ 距離 P50 中位: ${sign}${diffP50.toFixed(1)} ${unit}`);
+                    }
+                    if (p97Val !== null) {
+                      const diffP97 = item.parsed.y - p97Val;
+                      const sign = diffP97 >= 0 ? '+' : '';
+                      lines.push(`  ↳ 距離 P97 高標: ${sign}${diffP97.toFixed(1)} ${unit}`);
+                    }
+                  }
+                  return lines;
+                }
+              }
               return `${item.dataset.label}: ${item.parsed.y} ${unit}`;
             },
           },
@@ -648,34 +854,18 @@ function renderMeasurementTable(child) {
 
   el.measureTbody.innerHTML = paginatedMs.map(m => {
     const ageM = ageAtDate(child.birthDate, m.date);
+    const hPctBadge = m.heightPercentile !== undefined && m.heightPercentile !== null ? percentileBadge(m.heightPercentile) : '—';
+    const wPctBadge = m.weightPercentile !== undefined && m.weightPercentile !== null ? percentileBadge(m.weightPercentile) : '—';
     return `<tr>
       <td>${m.date}</td>
       <td>${formatAge(ageM)}</td>
       <td>${m.height ?? '—'}</td>
       <td>${m.weight ?? '—'}</td>
-      <td data-mid="${m.id}" class="pct-h">—</td>
-      <td data-mid="${m.id}" class="pct-w">—</td>
+      <td>${m.height ? hPctBadge : '—'}</td>
+      <td>${m.weight ? wPctBadge : '—'}</td>
       <td><button class="btn-del" data-mid="${m.id}" title="刪除">×</button></td>
     </tr>`;
   }).join('');
-
-  // Async-fill percentile cells for the paginated items only
-  paginatedMs.forEach(async (m) => {
-    if (!m.height && !m.weight) return;
-    try {
-      const ageM = ageAtDate(child.birthDate, m.date);
-      const pct = await api.getPercentile({
-        gender: child.gender,
-        ageMonths: ageM,
-        height: m.height || 0,
-        weight: m.weight || 0,
-      });
-      const hCell = el.measureTbody.querySelector(`[data-mid="${m.id}"].pct-h`);
-      const wCell = el.measureTbody.querySelector(`[data-mid="${m.id}"].pct-w`);
-      if (hCell && m.height) hCell.innerHTML = percentileBadge(pct.heightPercentile);
-      if (wCell && m.weight) wCell.innerHTML = percentileBadge(pct.weightPercentile);
-    } catch (_) {}
-  });
 
   el.measureTbody.querySelectorAll('.btn-del').forEach(btn => {
     btn.addEventListener('click', () => deleteMeasurement(btn.dataset.mid));
@@ -702,6 +892,7 @@ async function addMeasurement() {
 
   try {
     const m = await api.addMeasurement(state.selectedId, body);
+    await fetchPercentilesForMeasurements(child, [m]);
     const idx = state.measurements.findIndex(x => x.id === m.id);
     if (idx !== -1) state.measurements[idx] = m;
     else state.measurements.push(m);
@@ -1158,7 +1349,9 @@ function initMobileSidebar() {
 function initTabSwitcher() {
   const navItems = document.querySelectorAll('.nav-item');
   const tabs = {
-    growth: $('tab-content-growth'),
+    overview: $('tab-content-overview'),
+    chart: $('tab-content-chart'),
+    logs: $('tab-content-logs'),
     ai: $('tab-content-ai'),
   };
 
@@ -1182,8 +1375,8 @@ function initTabSwitcher() {
         }
       });
 
-      // Render chart only when entering the growth tab to avoid sizing issues on hidden canvases
-      if (targetTab === 'growth') {
+      // Render chart only when entering the chart tab to avoid sizing issues on hidden canvases
+      if (targetTab === 'chart') {
         renderChart();
       }
 

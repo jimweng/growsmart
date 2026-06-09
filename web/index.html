@@ -49,9 +49,17 @@
           <h3>功能選單</h3>
         </div>
         <ul class="nav-list">
-          <li class="nav-item active" data-tab="growth">
+          <li class="nav-item active" data-tab="overview">
             <span class="nav-icon">📊</span>
-            <span class="nav-text">成長資訊</span>
+            <span class="nav-text">成長概覽</span>
+          </li>
+          <li class="nav-item" data-tab="chart">
+            <span class="nav-icon">📈</span>
+            <span class="nav-text">成長曲線</span>
+          </li>
+          <li class="nav-item" data-tab="logs">
+            <span class="nav-icon">📝</span>
+            <span class="nav-text">記錄管理</span>
           </li>
           <li class="nav-item" data-tab="ai">
             <span class="nav-icon">🤖</span>
@@ -115,8 +123,8 @@
           </div>
         </header>
 
-        <!-- Tab Content 1: Growth Info -->
-        <div id="tab-content-growth" class="tab-content">
+        <!-- Tab Content 1: Overview -->
+        <div id="tab-content-overview" class="tab-content">
           <!-- Feature 2: Growth deviation alert -->
           <div id="growth-alert" class="growth-alert hidden"></div>
 
@@ -134,12 +142,23 @@
 
           <!-- Feature 4: Lifestyle advisor cards -->
           <div id="lifestyle-cards" class="lifestyle-cards hidden"></div>
+        </div>
 
+        <!-- Tab Content 2: Chart -->
+        <div id="tab-content-chart" class="tab-content hidden">
           <!-- Chart type toggle -->
           <div class="chart-controls">
             <div class="toggle-group">
               <button id="toggle-height" class="toggle-btn active" data-type="height">身高</button>
               <button id="toggle-weight" class="toggle-btn" data-type="weight">體重</button>
+            </div>
+            
+            <div class="toggle-group age-range-group">
+              <button class="toggle-btn active" data-range="auto">自動縮放</button>
+              <button class="toggle-btn" data-range="0-2">0–2歲</button>
+              <button class="toggle-btn" data-range="2-5">2–5歲</button>
+              <button class="toggle-btn" data-range="5-18">5–18歲</button>
+              <button class="toggle-btn" data-range="all">全期 0–18歲</button>
             </div>
           </div>
 
@@ -147,7 +166,10 @@
           <div class="chart-container">
             <canvas id="growth-chart"></canvas>
           </div>
+        </div>
 
+        <!-- Tab Content 3: Logs -->
+        <div id="tab-content-logs" class="tab-content hidden">
           <!-- Measurement input -->
           <div class="measure-section">
             <h3>新增測量</h3>

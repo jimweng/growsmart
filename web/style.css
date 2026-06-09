@@ -219,6 +219,9 @@ body {
   padding: 14px 16px;
   box-shadow: var(--shadow);
 }
+.stat-card-wide {
+  flex: 1 1 100%;
+}
 .stat-label { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); font-weight: 600; margin-bottom: 4px; }
 .stat-value { font-size: 24px; font-weight: 700; }
 .stat-sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
@@ -227,7 +230,13 @@ body {
 .stat-pct.mid { background: #fef9c3; color: #713f12; }
 
 /* ─── Chart controls ─── */
-.chart-controls { display: flex; gap: 12px; align-items: center; }
+.chart-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 12px;
+}
 .toggle-group {
   display: flex;
   border: 1px solid var(--border);
@@ -243,9 +252,26 @@ body {
   font-weight: 500;
   cursor: pointer;
   transition: all .15s;
+  white-space: nowrap;
 }
 .toggle-btn.active { background: var(--accent); color: #fff; }
 .toggle-btn:not(:last-child) { border-right: 1px solid var(--border); }
+
+@media (max-width: 600px) {
+  .chart-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .toggle-group {
+    width: 100%;
+  }
+  .toggle-btn {
+    flex: 1;
+    text-align: center;
+    padding: 8px 4px;
+    font-size: 12px;
+  }
+}
 
 /* ─── Chart ─── */
 .chart-container {
@@ -604,21 +630,94 @@ body {
   .stats-row {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
-    gap: 12px;
+    gap: 8px;
   }
 
   .stat-card {
     min-width: 0;
-    padding: 12px;
+    padding: 10px 8px;
+  }
+  
+  .stat-card-wide {
+    grid-column: span 2;
   }
 
   .stat-value {
-    font-size: 20px;
+    font-size: 18px;
+  }
+  
+  .stat-sub {
+    font-size: 11px;
+    line-height: 1.3;
+  }
+  
+  .stat-label {
+    font-size: 10px;
   }
 
   .chart-container {
     height: 300px;
     padding: 12px;
+  }
+  
+  /* Swipeable horizontal lifestyle cards for mobile */
+  .lifestyle-cards {
+    display: flex;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    gap: 12px;
+    padding-bottom: 8px;
+    margin-bottom: 16px;
+    -webkit-overflow-scrolling: touch;
+    grid-template-columns: none;
+  }
+  .lifestyle-cards::-webkit-scrollbar {
+    display: none;
+  }
+  .lc-card {
+    flex: 0 0 82%;
+    scroll-snap-align: start;
+    box-sizing: border-box;
+    padding: 12px;
+    gap: 6px;
+  }
+  .lc-card-header {
+    font-size: 13px;
+  }
+  .lc-card-body {
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  .lc-card-tag {
+    font-size: 10px;
+    padding: 2px 6px;
+  }
+  
+  /* Compact checklist & nutrition cards */
+  .catchup-nutrition,
+  .medical-checklist {
+    padding: 12px 14px;
+    margin-bottom: 12px;
+    font-size: 12px;
+  }
+  .catchup-header {
+    margin-bottom: 8px;
+    gap: 8px;
+  }
+  .catchup-icon {
+    font-size: 18px;
+  }
+  .catchup-title {
+    font-size: 13px;
+    gap: 4px;
+  }
+  .catchup-tag {
+    font-size: 10px;
+    padding: 1px 6px;
+  }
+  .catchup-list {
+    gap: 6px;
+    margin-bottom: 8px;
   }
 
   .measure-form {
@@ -654,9 +753,7 @@ body {
 }
 
 @media (max-width: 480px) {
-  .stats-row {
-    grid-template-columns: 1fr;
-  }
+  /* Keep 2-column layout on extra small screens for compact stats */
 }
 
 /* ─── Sidebar Navigation Tabs ─── */

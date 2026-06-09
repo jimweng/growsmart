@@ -18,7 +18,10 @@ func ProjectByZScore(gender, measureType string, ageMonths int, value float64, p
 	var slopeSum float64
 	var slopeN int
 
-	for age := ageMonths + 6; age <= predictUpToMonths; age += 6 {
+	// Snap start to the next 6-month WHO grid boundary so prediction x-values
+	// align with WHO curve x-values (0, 6, 12, ...) and avoid tooltip jumping.
+	startAge := ((ageMonths/6) + 1) * 6
+	for age := startAge; age <= predictUpToMonths; age += 6 {
 		lf, mf, sf, okf := interpolateLMS(age, table)
 		if !okf {
 			continue
