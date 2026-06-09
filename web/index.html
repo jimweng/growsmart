@@ -125,23 +125,42 @@
 
         <!-- Tab Content 1: Overview -->
         <div id="tab-content-overview" class="tab-content">
-          <!-- Feature 2: Growth deviation alert -->
-          <div id="growth-alert" class="growth-alert hidden"></div>
+          <!-- Overview Inner Sub-Tabs -->
+          <div class="overview-sub-tabs">
+            <button class="sub-tab-btn active" data-subtab="status">📊 成長現況</button>
+            <button class="sub-tab-btn" data-subtab="care">🥗 日常照護</button>
+            <button class="sub-tab-btn" data-subtab="clinical">🏥 專業指引</button>
+          </div>
 
-          <!-- Phase 2: Milestone banner -->
-          <div id="milestone-banner" class="milestone-banner hidden"></div>
+          <!-- Subtab 1: Status -->
+          <div id="subtab-status" class="subtab-content">
+            <!-- Feature 2: Growth deviation alert -->
+            <div id="growth-alert" class="growth-alert hidden"></div>
 
-          <!-- Stats row -->
-          <div class="stats-row" id="stats-row"></div>
+            <!-- Phase 2: Milestone banner -->
+            <div id="milestone-banner" class="milestone-banner hidden"></div>
 
-          <!-- Phase 2: Medical checklist (P<3) -->
-          <div id="medical-checklist" class="medical-checklist hidden"></div>
+            <!-- Stats row -->
+            <div class="stats-row" id="stats-row"></div>
+          </div>
 
-          <!-- Phase 2: Catch-up nutrition (P<=15) -->
-          <div id="catchup-nutrition" class="catchup-nutrition hidden"></div>
+          <!-- Subtab 2: Care -->
+          <div id="subtab-care" class="subtab-content hidden">
+            <!-- Feature 4: Lifestyle advisor cards -->
+            <div id="lifestyle-cards" class="lifestyle-cards hidden"></div>
+          </div>
 
-          <!-- Feature 4: Lifestyle advisor cards -->
-          <div id="lifestyle-cards" class="lifestyle-cards hidden"></div>
+          <!-- Subtab 3: Clinical -->
+          <div id="subtab-clinical" class="subtab-content hidden">
+            <!-- Phase 2: Medical checklist (P<3) -->
+            <div id="medical-checklist" class="medical-checklist hidden"></div>
+
+            <!-- Phase 2: Catch-up nutrition (P<=15) -->
+            <div id="catchup-nutrition" class="catchup-nutrition hidden"></div>
+
+            <!-- Normal growth reassurance (P > 15) -->
+            <div id="normal-growth-status" class="normal-growth-status hidden"></div>
+          </div>
         </div>
 
         <!-- Tab Content 2: Chart -->

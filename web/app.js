@@ -342,6 +342,7 @@ async function selectChild(id) {
   showEmptyOrDashboard();
   renderDashboard(child);
   resetAIChat();
+  resetOverviewSubTabs();
 
   const moreActionsMenu = $('more-actions-menu');
   if (moreActionsMenu) {
@@ -383,8 +384,11 @@ async function renderStats(child) {
   const latest = ms[ms.length - 1];
   if (!latest) {
     el.statsRow.innerHTML = '<p class="no-data">新增第一筆測量來查看統計</p>';
-    ['growth-alert','milestone-banner','lifestyle-cards','catchup-nutrition','medical-checklist']
-      .forEach(id => $(id).classList.add('hidden'));
+    ['growth-alert', 'milestone-banner', 'lifestyle-cards', 'catchup-nutrition', 'medical-checklist', 'normal-growth-status']
+      .forEach(id => {
+        const item = $(id);
+        if (item) item.classList.add('hidden');
+      });
     return;
   }
 
@@ -484,11 +488,14 @@ async function renderStats(child) {
   checkAlerts(child, ms);
 
   // Feature 4: lifestyle cards
-  renderLifestyleCards(ageInMonths(child.birthDate), hPct);
+  renderLifestyleCards(ageInMonths(child.birthDate), hPct, latest.weight, child.gender);
 
   // Phase 2: catch-up cards
   renderCatchupNutrition(hPct);
   renderMedicalChecklist(hPct);
+
+  // Normal growth reassurance status
+  renderNormalGrowthStatus(hPct, wPct);
 }
 
 /* ─── Chart ──────────────────────────────────────────────────────────────────── */
@@ -1140,7 +1147,7 @@ function calcMPH(child) {
 }
 
 /* ─── Feature 4: Lifestyle advisor cards ────────────────────────────────────── */
-function renderLifestyleCards(ageMonths, hPct) {
+function renderLifestyleCards(ageMonths, hPct, weight, gender) {
   const container = $('lifestyle-cards');
 
   // Sleep
@@ -1158,13 +1165,71 @@ function renderLifestyleCards(ageMonths, hPct) {
   else if (ageMonths < 144) exercise = '每天 60 分鐘高衝擊運動：跳繩、籃球、彈跳床（促進骨骼縱向生長）';
   else                       exercise = '每週 3–5 次有氧＋跳躍運動（如跳繩、排球），避免過度重訓';
 
-  // Nutrition
-  let calcium, note;
-  if (ageMonths < 36)       { calcium = '700 mg/天'; note = '母乳或配方奶為主，開始添加副食品'; }
-  else if (ageMonths < 96)  { calcium = '1000 mg/天'; note = '每日 2 杯牛奶（約 500 mL），豆腐、深色蔬菜補充'; }
-  else                       { calcium = '1300 mg/天'; note = '每日 3 杯牛奶，避免高糖飲料（抑制生長激素分泌 2 小時）'; }
+  // Nutrition text
+  let note;
+  if (ageMonths < 36)      note = '母乳或配方奶為主，開始添加副食品';
+  else if (ageMonths < 96) note = '每日 2 杯牛奶（約 500 mL），豆腐、深色蔬菜補充';
+  else                      note = '每日 3 杯牛奶，避免高糖飲料（抑制生長激素分泌 2 小時）';
 
-  const pctNote = hPct !== null && hPct < 25 ? '⚠️ 蛋白質攝取要足夠：每公斤體重約 1.5 g/天' : '蛋白質每公斤體重約 1.2 g/天';
+  // Personalized nutrition calculations (DRI-based)
+  let calcHtml = '';
+  if (weight && weight > 0) {
+    const proteinRate = (hPct !== null && hPct < 25) ? 1.5 : 1.2;
+    const protein = (weight * proteinRate).toFixed(1);
+
+    let calPerKg;
+    if (ageMonths < 6)        calPerKg = 108;
+    else if (ageMonths < 12)  calPerKg = 98;
+    else if (ageMonths < 36)  calPerKg = 102;
+    else if (ageMonths < 96)  calPerKg = 90;
+    else if (ageMonths < 156) calPerKg = gender === 'male' ? 75 : 70;
+    else                       calPerKg = gender === 'male' ? 63 : 58;
+    const calories = Math.round(weight * calPerKg);
+
+    let calcium;
+    if (ageMonths < 7)        calcium = 200;
+    else if (ageMonths < 12)  calcium = 260;
+    else if (ageMonths < 48)  calcium = 700;
+    else if (ageMonths < 108) calcium = 1000;
+    else                       calcium = 1300;
+
+    let zinc;
+    if (ageMonths < 7)        zinc = 2;
+    else if (ageMonths < 12)  zinc = 3;
+    else if (ageMonths < 48)  zinc = 3;
+    else if (ageMonths < 108) zinc = 5;
+    else if (ageMonths < 168) zinc = 8;
+    else                       zinc = gender === 'male' ? 11 : 9;
+
+    const water = Math.round(weight * 35);
+
+    calcHtml = `
+      <div class="nc-grid">
+        <div class="nc-item">
+          <div class="nc-label">蛋白質</div>
+          <div class="nc-value">${protein}<span class="nc-unit">g</span></div>
+          <div class="nc-note">${proteinRate}g × ${weight}kg</div>
+        </div>
+        <div class="nc-item">
+          <div class="nc-label">熱量</div>
+          <div class="nc-value">${calories}<span class="nc-unit">kcal</span></div>
+          <div class="nc-note">${calPerKg}kcal × ${weight}kg</div>
+        </div>
+        <div class="nc-item">
+          <div class="nc-label">鈣質</div>
+          <div class="nc-value">${calcium}<span class="nc-unit">mg</span></div>
+        </div>
+        <div class="nc-item">
+          <div class="nc-label">鋅</div>
+          <div class="nc-value">${zinc}<span class="nc-unit">mg</span></div>
+        </div>
+        <div class="nc-item">
+          <div class="nc-label">水分</div>
+          <div class="nc-value">${water}<span class="nc-unit">mL</span></div>
+          <div class="nc-note">35mL × ${weight}kg</div>
+        </div>
+      </div>`;
+  }
 
   container.innerHTML = `
     <div class="lc-card">
@@ -1183,10 +1248,10 @@ function renderLifestyleCards(ageMonths, hPct) {
     </div>
     <div class="lc-card">
       <div class="lc-card-header"><span class="lc-card-icon">🥗</span>營養建議</div>
-      <div class="lc-card-tag">鈣質 ${calcium}</div>
+      <div class="lc-card-tag">依體重個人化計算（DRI 標準）</div>
       <div class="lc-card-body">
-        ${note}<br>
-        ${pctNote}
+        ${note}
+        ${calcHtml}
       </div>
     </div>`;
   container.classList.remove('hidden');
@@ -1250,6 +1315,99 @@ function renderMedicalChecklist(hPct) {
     </ul>
     <p class="medical-note">提前了解流程，就診不慌張。是否需就醫請由醫師判斷，本系統提供輔助參考。</p>`;
   container.classList.remove('hidden');
+}
+
+/* ─── Normal Growth Reassurance Status ───────────────────────────────────────── */
+function renderNormalGrowthStatus(hPct, wPct) {
+  const container = $('normal-growth-status');
+  if (!container) return;
+
+  const hasLowPct = (hPct !== null && hPct <= 15) || (wPct !== null && wPct <= 15);
+
+  if (hasLowPct || (hPct === null && wPct === null)) {
+    container.classList.add('hidden');
+    return;
+  }
+
+  const child = state.children.find(c => c.id === state.selectedId);
+  const name = child ? child.name : '孩子';
+
+  let detailText = `目前 ${name} 的成長數據非常理想。`;
+  if (hPct !== null) {
+    detailText += `最新身高百分位為 P${Math.round(hPct)}，`;
+  }
+  if (wPct !== null) {
+    detailText += `最新體重百分位為 P${Math.round(wPct)}，`;
+  }
+  detailText += `均落於正常的成長曲線區間內。不需要特別啟動就醫評估或額外的追趕生長飲食計畫。`;
+
+  container.innerHTML = `
+    <div class="normal-growth-card">
+      <div class="normal-growth-header">
+        <span class="normal-growth-icon">✨</span>
+        <div class="normal-growth-title">成長狀態評估：健康良好</div>
+      </div>
+      <p class="normal-growth-body">${detailText}</p>
+      <div class="normal-growth-tips">
+        <strong>💡 日常維持建議：</strong>
+        <ul>
+          <li>維持每日均衡飲食（適量攝取優質蛋白質、鈣質與深色蔬菜）。</li>
+          <li>每天進行至少 60 分鐘中高強度活動（如跳繩、打籃球、戶外跑跳）。</li>
+          <li>保持規律作息，每天晚上 10 點前就寢，確保深層睡眠涵蓋生長激素分泌黃金期。</li>
+        </ul>
+      </div>
+    </div>
+  `;
+  container.classList.remove('hidden');
+}
+
+/* ─── Overview Sub-Tabs ──────────────────────────────────────────────────────── */
+function initOverviewSubTabs() {
+  const subTabsContainer = document.querySelector('.overview-sub-tabs');
+  if (!subTabsContainer) return;
+
+  const buttons = subTabsContainer.querySelectorAll('.sub-tab-btn');
+  buttons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      buttons.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+
+      const targetSubtab = btn.dataset.subtab;
+      const subtabContents = document.querySelectorAll('.subtab-content');
+      subtabContents.forEach(content => {
+        if (content.id === `subtab-${targetSubtab}`) {
+          content.classList.remove('hidden');
+          content.classList.add('fade-in');
+        } else {
+          content.classList.add('hidden');
+          content.classList.remove('fade-in');
+        }
+      });
+    });
+  });
+}
+
+function resetOverviewSubTabs() {
+  const subTabsContainer = document.querySelector('.overview-sub-tabs');
+  if (!subTabsContainer) return;
+  const buttons = subTabsContainer.querySelectorAll('.sub-tab-btn');
+  buttons.forEach((btn, idx) => {
+    const targetSubtab = btn.dataset.subtab;
+    const content = $(`subtab-${targetSubtab}`);
+    if (idx === 0) {
+      btn.classList.add('active');
+      if (content) {
+        content.classList.remove('hidden');
+        content.classList.remove('fade-in');
+      }
+    } else {
+      btn.classList.remove('active');
+      if (content) {
+        content.classList.add('hidden');
+        content.classList.remove('fade-in');
+      }
+    }
+  });
 }
 
 function initAIChat() {
@@ -1397,6 +1555,7 @@ async function init() {
   initMobileSidebar();
   initTabSwitcher();
   initPctModal();
+  initOverviewSubTabs();
 
   try {
     state.children = await api.getChildren();
