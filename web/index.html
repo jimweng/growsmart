@@ -8,6 +8,32 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
 </head>
 <body>
+  <!-- Login page (shown when not authenticated) -->
+  <div id="login-page" class="login-page hidden">
+    <div class="login-card">
+      <div class="login-logo">
+        <span class="login-logo-icon">🌱</span>
+        <span class="login-logo-text">GrowSmart</span>
+      </div>
+      <p class="login-tagline">兒童成長追蹤，科學育兒從這裡開始</p>
+      <div class="login-buttons">
+        <a href="/auth/google" class="login-btn login-btn-google">
+          <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M16.51 8H8.98v3h4.3c-.18 1-.74 1.48-1.6 2.04v2.01h2.6a7.8 7.8 0 002.38-5.88c0-.57-.05-.66-.15-1.18z"/><path fill="#34A853" d="M8.98 17c2.16 0 3.97-.72 5.3-1.94l-2.6-2a4.8 4.8 0 01-7.18-2.54H1.83v2.07A8 8 0 008.98 17z"/><path fill="#FBBC05" d="M4.5 10.52a4.8 4.8 0 010-3.04V5.41H1.83a8 8 0 000 7.18l2.67-2.07z"/><path fill="#EA4335" d="M8.98 4.18c1.17 0 2.23.4 3.06 1.2l2.3-2.3A8 8 0 001.83 5.4L4.5 7.49a4.77 4.77 0 014.48-3.3z"/></svg>
+          使用 Google 登入
+        </a>
+        <a href="/auth/facebook" class="login-btn login-btn-facebook">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="#1877F2"><path d="M24 12.073C24 5.405 18.627 0 12 0S0 5.405 0 12.073C0 18.1 4.388 23.094 10.125 24v-8.437H7.078v-3.49h3.047V9.41c0-3.025 1.792-4.697 4.533-4.697 1.312 0 2.686.235 2.686.235v2.97h-1.513c-1.491 0-1.956.93-1.956 1.886v2.268h3.328l-.532 3.49h-2.796V24C19.612 23.094 24 18.1 24 12.073z"/></svg>
+          使用 Facebook 登入
+        </a>
+        <a href="/auth/line" class="login-btn login-btn-line">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="#FFFFFF"><path d="M19.365 9.863c.349 0 .63.285.63.631 0 .345-.281.63-.63.63H17.61v1.125h1.755c.349 0 .63.283.63.63 0 .344-.281.629-.63.629h-2.386c-.345 0-.627-.285-.627-.629V8.108c0-.345.282-.63.627-.63h2.386c.349 0 .63.285.63.63 0 .349-.281.63-.63.63H17.61v1.125h1.755zm-3.855 3.016c0 .27-.174.51-.432.596-.064.021-.133.031-.199.031-.211 0-.391-.09-.51-.25l-2.443-3.317v2.94c0 .344-.279.629-.631.629-.346 0-.626-.285-.626-.629V8.108c0-.27.173-.51.43-.595.06-.023.136-.033.194-.033.195 0 .375.104.495.254l2.462 3.33V8.108c0-.345.282-.63.63-.63.345 0 .63.285.63.63v4.771zm-5.741 0c0 .344-.282.629-.631.629-.345 0-.627-.285-.627-.629V8.108c0-.345.282-.63.627-.63.349 0 .631.285.631.63v4.771zm-2.466.629H4.917c-.345 0-.63-.285-.63-.629V8.108c0-.345.285-.63.63-.63.348 0 .63.285.63.63v4.141h1.756c.348 0 .629.283.629.63 0 .344-.281.629-.629.629M24 10.314C24 4.943 18.615.572 12 .572S0 4.943 0 10.314c0 4.811 4.27 8.842 10.035 9.608.391.082.923.258 1.058.59.12.301.079.766.038 1.08l-.164 1.02c-.045.301-.24 1.186 1.049.645 1.291-.539 6.916-4.070 9.436-6.975C23.176 14.393 24 12.458 24 10.314"/></svg>
+          使用 LINE 登入
+        </a>
+      </div>
+      <p class="login-note">登入即代表您同意我們的服務條款。您的孩子資料僅儲存在您的帳號中。</p>
+    </div>
+  </div>
+
   <div class="app">
     <!-- Mobile Header -->
     <header class="mobile-header">
@@ -30,6 +56,15 @@
           <span class="logo-text">GrowSmart</span>
         </div>
         <button id="btn-close-sidebar" class="btn-close-sidebar" title="關閉選單">×</button>
+      </div>
+
+      <!-- User info -->
+      <div id="user-panel" class="user-panel hidden">
+        <img id="user-avatar" class="user-avatar" src="" alt="" />
+        <div class="user-info">
+          <div id="user-name" class="user-name"></div>
+          <a href="/auth/logout" class="user-logout">登出</a>
+        </div>
       </div>
 
       <div class="children-panel">
@@ -90,6 +125,10 @@
           <label>母親身高 (cm) <span class="optional">選填</span>
             <input id="cf-mother-height" type="number" step="0.1" min="140" max="220" placeholder="160" />
           </label>
+        </div>
+        <div class="cf-consent-row">
+          <input id="cf-consent" type="checkbox" />
+          <label for="cf-consent">我同意 <a href="#" id="link-tos" class="legal-link">服務條款</a> 與 <a href="#" id="link-privacy" class="legal-link">隱私權政策</a>，並授權此平台收集與儲存孩子生長之敏感個資。</label>
         </div>
         <div class="form-actions">
           <button id="cf-cancel" class="btn-secondary">取消</button>
@@ -242,6 +281,9 @@
               <h3>🤖 AI 成長顧問</h3>
               <button id="ai-clear" class="btn-secondary btn-sm">清除對話</button>
             </div>
+            <div class="ai-disclaimer-box">
+              ⚠️ <strong>諮詢提示：</strong>AI 成長顧問所提供之內容僅為科普知識，回覆不具任何醫療診斷或治療效力。若有任何具體發育疑問，請諮詢專業小兒科醫師。
+            </div>
             <p class="ai-hint">只能詢問與孩子成長相關的問題（身高、體重、營養、睡眠、運動等）</p>
             <div class="ai-examples">
               <span>例：</span>
@@ -261,6 +303,13 @@
             </div>
           </div>
         </div>
+
+        <!-- Global Medical Disclaimer Footer -->
+        <footer class="dash-footer">
+          <p class="global-disclaimer">
+            ⚠️ <strong>醫療免責聲明：</strong>本平台提供之所有生長百分位、發育評估、健康指南與 AI 顧問建議僅供個人健康管理與衛教知識參考，不構成任何醫療診斷、專業諮詢或臨床治療方案。使用本平台即代表您同意本系統服務條款，且理解數據與建議無法取代小兒科醫師之實體診斷。
+          </p>
+        </footer>
       </div>
     </main>
   </div>
@@ -272,6 +321,15 @@
       <h3 id="pct-modal-title" class="modal-title"></h3>
       <p id="pct-modal-body" class="modal-body"></p>
       <p class="modal-note">比起數字高低，孩子穩定地沿著自己的曲線成長才是最健康的表現。</p>
+    </div>
+  </div>
+
+  <!-- Legal Modal (TOS / Privacy) -->
+  <div id="legal-modal-backdrop" class="modal-backdrop hidden">
+    <div class="modal-box legal-modal-box" role="dialog" aria-modal="true">
+      <button id="legal-modal-close" class="modal-close" aria-label="關閉">×</button>
+      <h3 id="legal-modal-title" class="modal-title"></h3>
+      <div id="legal-modal-body" class="modal-body legal-modal-body"></div>
     </div>
   </div>
 

@@ -226,6 +226,7 @@ function openChildForm(child = null) {
   el.cfBirth.value = child ? child.birthDate : '';
   el.cfFatherHeight.value = child?.fatherHeight ?? '';
   el.cfMotherHeight.value = child?.motherHeight ?? '';
+  $('cf-consent').checked = false; // Reset consent checkbox
   el.childForm.classList.remove('hidden');
   el.cfName.focus();
 
@@ -244,6 +245,10 @@ function closeChildForm() {
 }
 
 async function saveChild() {
+  if (!$('cf-consent').checked) {
+    alert('請先閱讀並勾選同意服務條款與隱私權政策，以授權此平台處理個人成長數據。');
+    return;
+  }
   const data = {
     name: el.cfName.value.trim(),
     gender: el.cfGender.value,
@@ -1410,6 +1415,84 @@ function resetOverviewSubTabs() {
   });
 }
 
+/* ─── Legal Modal (TOS / Privacy) ────────────────────────────────────────────── */
+const LEGAL_TEXTS = {
+  tos: {
+    title: 'GrowSmart 服務條款',
+    body: `<h4>1. 服務聲明</h4>
+<p>歡迎使用 GrowSmart 兒童成長曲線管理系統（以下簡稱「本平台」）。本平台僅作為個人記錄兒童身高、體重與查看 WHO 生長曲線標準之輔助軟體與數位工具。</p>
+
+<h4>2. 非醫療診斷聲明</h4>
+<p>本平台所提供之所有數據計算、生長百分位評估、近期生長速度比對、成人身高預測、日常作息建議、營養指導以及 AI 成長顧問之問答內容，均屬一般性衛教與科普知識參考，<strong>絕不構成任何形式的醫療診斷、專業諮詢、臨床處方或治療方案。</strong></p>
+<p>家長與使用者理解並同意，本平台提供之任何資訊或建議，均無法取代專業小兒遺傳內分泌科、兒童發育專科或其他合格小兒科醫師之實體門診診斷。若您對孩子的發育進度、生長曲線異常偏低（如低於 P3）或任何健康狀態有疑問，請務必諮詢專業醫療人員。</p>
+
+<h4>3. 使用者義務與資料真實性</h4>
+<p>使用者應確保輸入之兒童暱稱、生日、性別、身高、體重以及父母身高之真實性，以維持百分位與圖表計算之準確性。若因使用者輸入錯誤資訊而導致評估結果偏差，本平台概不負責。</p>
+
+<h4>4. 責任限制</h4>
+<p>在法律允許的最大範圍內，本平台不對任何因使用或無法使用本服務而導致之直接、間接、偶發或特別損害（包括但不限於因依賴平台建議而延誤就醫之情況）承擔任何損害賠償責任。</p>`
+  },
+  privacy: {
+    title: 'GrowSmart 隱私權政策',
+    body: `<h4>1. 資料收集與範圍</h4>
+<p>為了為您和孩子渲染生長曲線與計算百分位，當您使用本服務建立檔案時，本平台會收集以下個人資料：</p>
+<ul>
+  <li>兒童之暱稱/姓名、性別、出生日期。</li>
+  <li>兒童之身高、體重之歷史測量數值與測量日期。</li>
+  <li>父母之身高（選填，用於計算遺傳靶身高 MPH）。</li>
+</ul>
+
+<h4>2. 資料使用目的與儲存</h4>
+<p>上述收集之資料為<strong>兒童發育敏感個人數據</strong>。本平台僅將此資料用於以下目的：</p>
+<ul>
+  <li>於本地端及伺服器進行 WHO 標準百分位計算並繪製 Growth Chart。</li>
+  <li>提供日常照護建議與個人化 DRI（每日營養素攝取量）計算。</li>
+  <li>作為 AI 成長顧問回答相關生長問題時的上下文參考。</li>
+</ul>
+<p>我們採用業界標準之加密傳輸與安全儲存技術。除法律強制要求外，未經您的明確同意，我們絕不將上述資料公開或提供給任何第三方。</p>
+
+<h4>3. 使用者權利</h4>
+<p>您隨時可以透過本服務之界面編輯或「刪除孩子檔案」來撤銷授權。當您刪除檔案時，本平台將會從資料庫中永久抹除該孩子的所有測量記錄，且無法復原。</p>
+
+<h4>4. 隱私權政策修訂</h4>
+<p>我們可能會不定期修訂本隱私權政策。重大變更時，我們將於平台上公告，繼續使用本服務即代表您同意修訂後的隱私政策。</p>`
+  }
+};
+
+function initLegalModal() {
+  const backdrop = $('legal-modal-backdrop');
+  const closeBtn = $('legal-modal-close');
+  const titleEl  = $('legal-modal-title');
+  const bodyEl   = $('legal-modal-body');
+
+  const openModal = (type) => {
+    const data = LEGAL_TEXTS[type];
+    if (!data) return;
+    titleEl.textContent = data.title;
+    bodyEl.innerHTML = data.body;
+    backdrop.classList.remove('hidden');
+  };
+
+  const close = () => backdrop.classList.add('hidden');
+
+  // Wire up links
+  document.addEventListener('click', (e) => {
+    const tosLink = e.target.closest('#link-tos');
+    const privacyLink = e.target.closest('#link-privacy');
+    if (tosLink) {
+      e.preventDefault();
+      openModal('tos');
+    } else if (privacyLink) {
+      e.preventDefault();
+      openModal('privacy');
+    }
+  });
+
+  closeBtn.addEventListener('click', close);
+  backdrop.addEventListener('click', (e) => { if (e.target === backdrop) close(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+}
+
 function initAIChat() {
   $('ai-submit').addEventListener('click', askAI);
   $('ai-clear').addEventListener('click', clearChatHistory);
@@ -1546,8 +1629,34 @@ function initTabSwitcher() {
   });
 }
 
+/* ─── Auth ───────────────────────────────────────────────────────────────────── */
+async function checkAuth() {
+  try {
+    const user = await apiFetch('/auth/me');
+    // Show user panel in sidebar
+    const panel = $('user-panel');
+    const avatar = $('user-avatar');
+    const nameEl = $('user-name');
+    if (panel) {
+      if (user.avatarUrl) { avatar.src = user.avatarUrl; avatar.style.display = 'block'; }
+      else { avatar.style.display = 'none'; }
+      nameEl.textContent = user.name || user.email || '用戶';
+      panel.classList.remove('hidden');
+    }
+    return true;
+  } catch (_) {
+    // Not authenticated — show login page
+    $('login-page').classList.remove('hidden');
+    document.querySelector('.app').classList.add('hidden');
+    return false;
+  }
+}
+
 /* ─── Init ───────────────────────────────────────────────────────────────────── */
 async function init() {
+  const authed = await checkAuth();
+  if (!authed) return;
+
   // Set date input default to today
   el.measureDate.value = new Date().toISOString().split('T')[0];
 
@@ -1556,6 +1665,7 @@ async function init() {
   initTabSwitcher();
   initPctModal();
   initOverviewSubTabs();
+  initLegalModal();
 
   try {
     state.children = await api.getChildren();
