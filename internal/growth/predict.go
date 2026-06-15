@@ -2,6 +2,50 @@ package growth
 
 import "math"
 
+// ProjectByZScore projects a child's growth by maintaining their current WHO z-score
+// forward through future ages. More accurate than linear regression for young children.
+func ProjectByZScore(gender, measureType string, ageMonths int, value float64, predictUpToMonths int) PredictResult {
+	table := getLMSTable(gender, measureType)
+	l, m, s, ok := interpolateLMS(ageMonths, table)
+	if !ok || m == 0 {
+		return PredictResult{}
+	}
+	z := zScore(value, l, m, s)
+
+	var preds []DataPoint
+	var prevVal float64
+	var prevAge int
+	var slopeSum float64
+	var slopeN int
+
+	// Snap start to the next 6-month WHO grid boundary so prediction x-values
+	// align with WHO curve x-values (0, 6, 12, ...) and avoid tooltip jumping.
+	startAge := ((ageMonths/6) + 1) * 6
+	for age := startAge; age <= predictUpToMonths; age += 6 {
+		lf, mf, sf, okf := interpolateLMS(age, table)
+		if !okf {
+			continue
+		}
+		v := math.Round(valueAtZScore(z, lf, mf, sf)*10) / 10
+		preds = append(preds, DataPoint{AgeMonths: age, Value: v})
+		if prevAge > 0 {
+			slopeSum += (v - prevVal) / float64(age-prevAge)
+			slopeN++
+		}
+		prevAge = age
+		prevVal = v
+	}
+
+	avgSlope := 0.0
+	if slopeN > 0 {
+		avgSlope = slopeSum / float64(slopeN)
+	}
+	return PredictResult{
+		Slope:       math.Round(avgSlope*1000) / 1000,
+		Predictions: preds,
+	}
+}
+
 // DataPoint is a (age, value) pair for regression.
 type DataPoint struct {
 	AgeMonths int     `json:"ageMonths"`

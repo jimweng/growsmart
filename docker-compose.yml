@@ -26,9 +26,19 @@ services:
       DB_PASSWORD: growsmart
       DB_NAME: growsmart
       PORT: 8090
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      CLAUDE_PROXY_URL: http://host.docker.internal:9999
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      BASE_URL: ${BASE_URL:-http://localhost:8090}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      FACEBOOK_CLIENT_ID: ${FACEBOOK_CLIENT_ID:-}
+      FACEBOOK_CLIENT_SECRET: ${FACEBOOK_CLIENT_SECRET:-}
+      LINE_CLIENT_ID: ${LINE_CLIENT_ID:-}
+      LINE_CLIENT_SECRET: ${LINE_CLIENT_SECRET:-}
     ports:
       - "8090:8090"   # host 8090 → container 8090 (avoids conflict with 8080)
+    volumes:
+      - ./web:/app/web
     depends_on:
       db:
         condition: service_healthy

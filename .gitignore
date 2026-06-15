@@ -1,4 +1,5 @@
 growsmart
+/claude-proxy
 *.exe
 *.out
 .DS_Store

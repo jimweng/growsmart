@@ -8,12 +8,63 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
 </head>
 <body>
+  <!-- Login page (shown when not authenticated) -->
+  <div id="login-page" class="login-page hidden">
+    <div class="login-card">
+      <div class="login-logo">
+        <span class="login-logo-icon">🌱</span>
+        <span class="login-logo-text">GrowSmart</span>
+      </div>
+      <p class="login-tagline">兒童成長追蹤，科學育兒從這裡開始</p>
+      <div class="login-buttons">
+        <a href="/auth/google" class="login-btn login-btn-google">
+          <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M16.51 8H8.98v3h4.3c-.18 1-.74 1.48-1.6 2.04v2.01h2.6a7.8 7.8 0 002.38-5.88c0-.57-.05-.66-.15-1.18z"/><path fill="#34A853" d="M8.98 17c2.16 0 3.97-.72 5.3-1.94l-2.6-2a4.8 4.8 0 01-7.18-2.54H1.83v2.07A8 8 0 008.98 17z"/><path fill="#FBBC05" d="M4.5 10.52a4.8 4.8 0 010-3.04V5.41H1.83a8 8 0 000 7.18l2.67-2.07z"/><path fill="#EA4335" d="M8.98 4.18c1.17 0 2.23.4 3.06 1.2l2.3-2.3A8 8 0 001.83 5.4L4.5 7.49a4.77 4.77 0 014.48-3.3z"/></svg>
+          使用 Google 登入
+        </a>
+        <a href="/auth/facebook" class="login-btn login-btn-facebook">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="#1877F2"><path d="M24 12.073C24 5.405 18.627 0 12 0S0 5.405 0 12.073C0 18.1 4.388 23.094 10.125 24v-8.437H7.078v-3.49h3.047V9.41c0-3.025 1.792-4.697 4.533-4.697 1.312 0 2.686.235 2.686.235v2.97h-1.513c-1.491 0-1.956.93-1.956 1.886v2.268h3.328l-.532 3.49h-2.796V24C19.612 23.094 24 18.1 24 12.073z"/></svg>
+          使用 Facebook 登入
+        </a>
+        <a href="/auth/line" class="login-btn login-btn-line">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="#FFFFFF"><path d="M19.365 9.863c.349 0 .63.285.63.631 0 .345-.281.63-.63.63H17.61v1.125h1.755c.349 0 .63.283.63.63 0 .344-.281.629-.63.629h-2.386c-.345 0-.627-.285-.627-.629V8.108c0-.345.282-.63.627-.63h2.386c.349 0 .63.285.63.63 0 .349-.281.63-.63.63H17.61v1.125h1.755zm-3.855 3.016c0 .27-.174.51-.432.596-.064.021-.133.031-.199.031-.211 0-.391-.09-.51-.25l-2.443-3.317v2.94c0 .344-.279.629-.631.629-.346 0-.626-.285-.626-.629V8.108c0-.27.173-.51.43-.595.06-.023.136-.033.194-.033.195 0 .375.104.495.254l2.462 3.33V8.108c0-.345.282-.63.63-.63.345 0 .63.285.63.63v4.771zm-5.741 0c0 .344-.282.629-.631.629-.345 0-.627-.285-.627-.629V8.108c0-.345.282-.63.627-.63.349 0 .631.285.631.63v4.771zm-2.466.629H4.917c-.345 0-.63-.285-.63-.629V8.108c0-.345.285-.63.63-.63.348 0 .63.285.63.63v4.141h1.756c.348 0 .629.283.629.63 0 .344-.281.629-.629.629M24 10.314C24 4.943 18.615.572 12 .572S0 4.943 0 10.314c0 4.811 4.27 8.842 10.035 9.608.391.082.923.258 1.058.59.12.301.079.766.038 1.08l-.164 1.02c-.045.301-.24 1.186 1.049.645 1.291-.539 6.916-4.070 9.436-6.975C23.176 14.393 24 12.458 24 10.314"/></svg>
+          使用 LINE 登入
+        </a>
+      </div>
+      <p class="login-note">登入即代表您同意我們的服務條款。您的孩子資料僅儲存在您的帳號中。</p>
+    </div>
+  </div>
+
   <div class="app">
+    <!-- Mobile Header -->
+    <header class="mobile-header">
+      <button id="btn-toggle-sidebar" class="btn-menu-toggle" aria-label="選單">☰</button>
+      <div class="mobile-logo">
+        <span class="logo-icon">🌱</span>
+        <span class="logo-text">GrowSmart</span>
+      </div>
+      <div style="width: 40px;"></div> <!-- Spacer to balance layout -->
+    </header>
+
+    <!-- Sidebar Overlay -->
+    <div id="sidebar-overlay" class="sidebar-overlay"></div>
+
     <!-- Sidebar -->
     <aside class="sidebar">
       <div class="logo">
-        <span class="logo-icon">🌱</span>
-        <span class="logo-text">GrowSmart</span>
+        <div class="logo-brand">
+          <span class="logo-icon">🌱</span>
+          <span class="logo-text">GrowSmart</span>
+        </div>
+        <button id="btn-close-sidebar" class="btn-close-sidebar" title="關閉選單">×</button>
+      </div>
+
+      <!-- User info -->
+      <div id="user-panel" class="user-panel hidden">
+        <img id="user-avatar" class="user-avatar" src="" alt="" />
+        <div class="user-info">
+          <div id="user-name" class="user-name"></div>
+          <a href="/auth/logout" class="user-logout">登出</a>
+        </div>
       </div>
 
       <div class="children-panel">
@@ -22,6 +73,34 @@
           <button id="btn-add-child" class="btn-icon" title="新增孩子">＋</button>
         </div>
         <ul id="children-list" class="children-list"></ul>
+      </div>
+
+      <!-- Separator -->
+      <div class="sidebar-separator"></div>
+
+      <!-- Navigation tabs -->
+      <div class="nav-panel">
+        <div class="panel-header">
+          <h3>功能選單</h3>
+        </div>
+        <ul class="nav-list">
+          <li class="nav-item active" data-tab="overview">
+            <span class="nav-icon">📊</span>
+            <span class="nav-text">成長概覽</span>
+          </li>
+          <li class="nav-item" data-tab="chart">
+            <span class="nav-icon">📈</span>
+            <span class="nav-text">成長曲線</span>
+          </li>
+          <li class="nav-item" data-tab="logs">
+            <span class="nav-icon">📝</span>
+            <span class="nav-text">記錄管理</span>
+          </li>
+          <li class="nav-item" data-tab="ai">
+            <span class="nav-icon">🤖</span>
+            <span class="nav-text">AI 成長顧問</span>
+          </li>
+        </ul>
       </div>
 
       <!-- Add/Edit child form -->
@@ -39,6 +118,18 @@
         <label>出生日期
           <input id="cf-birth" type="date" />
         </label>
+        <div class="form-row">
+          <label>父親身高 (cm) <span class="optional">選填</span>
+            <input id="cf-father-height" type="number" step="0.1" min="140" max="220" placeholder="175" />
+          </label>
+          <label>母親身高 (cm) <span class="optional">選填</span>
+            <input id="cf-mother-height" type="number" step="0.1" min="140" max="220" placeholder="160" />
+          </label>
+        </div>
+        <div class="cf-consent-row">
+          <input id="cf-consent" type="checkbox" />
+          <label for="cf-consent">我同意 <a href="#" id="link-tos" class="legal-link">服務條款</a> 與 <a href="#" id="link-privacy" class="legal-link">隱私權政策</a>，並授權此平台收集與儲存孩子生長之敏感個資。</label>
+        </div>
         <div class="form-actions">
           <button id="cf-cancel" class="btn-secondary">取消</button>
           <button id="cf-save" class="btn-primary">儲存</button>
@@ -62,88 +153,184 @@
             <h2 id="child-name">孩子</h2>
             <p id="child-meta" class="child-meta"></p>
           </div>
-          <div class="header-actions">
-            <button id="btn-edit-child" class="btn-secondary btn-sm">編輯</button>
-            <button id="btn-delete-child" class="btn-danger btn-sm">刪除</button>
+          <div class="dropdown">
+            <button id="btn-more-actions" class="btn-more-actions" title="更多操作">⋮</button>
+            <div id="more-actions-menu" class="dropdown-menu hidden">
+              <button id="btn-edit-child" class="dropdown-item">編輯資料</button>
+              <button id="btn-delete-child" class="dropdown-item danger">刪除孩子</button>
+            </div>
           </div>
         </header>
 
-        <!-- Stats row -->
-        <div class="stats-row" id="stats-row"></div>
+        <!-- Tab Content 1: Overview -->
+        <div id="tab-content-overview" class="tab-content">
+          <!-- Overview Inner Sub-Tabs -->
+          <div class="overview-sub-tabs">
+            <button class="sub-tab-btn active" data-subtab="status">📊 成長現況</button>
+            <button class="sub-tab-btn" data-subtab="care">🥗 日常照護</button>
+            <button class="sub-tab-btn" data-subtab="clinical">🏥 專業指引</button>
+          </div>
 
-        <!-- Chart type toggle -->
-        <div class="chart-controls">
-          <div class="toggle-group">
-            <button id="toggle-height" class="toggle-btn active" data-type="height">身高</button>
-            <button id="toggle-weight" class="toggle-btn" data-type="weight">體重</button>
+          <!-- Subtab 1: Status -->
+          <div id="subtab-status" class="subtab-content">
+            <!-- Feature 2: Growth deviation alert -->
+            <div id="growth-alert" class="growth-alert hidden"></div>
+
+            <!-- Phase 2: Milestone banner -->
+            <div id="milestone-banner" class="milestone-banner hidden"></div>
+
+            <!-- Stats row -->
+            <div class="stats-row" id="stats-row"></div>
+          </div>
+
+          <!-- Subtab 2: Care -->
+          <div id="subtab-care" class="subtab-content hidden">
+            <!-- Feature 4: Lifestyle advisor cards -->
+            <div id="lifestyle-cards" class="lifestyle-cards hidden"></div>
+          </div>
+
+          <!-- Subtab 3: Clinical -->
+          <div id="subtab-clinical" class="subtab-content hidden">
+            <!-- Phase 2: Medical checklist (P<3) -->
+            <div id="medical-checklist" class="medical-checklist hidden"></div>
+
+            <!-- Phase 2: Catch-up nutrition (P<=15) -->
+            <div id="catchup-nutrition" class="catchup-nutrition hidden"></div>
+
+            <!-- Normal growth reassurance (P > 15) -->
+            <div id="normal-growth-status" class="normal-growth-status hidden"></div>
           </div>
         </div>
 
-        <!-- Chart -->
-        <div class="chart-container">
-          <canvas id="growth-chart"></canvas>
+        <!-- Tab Content 2: Chart -->
+        <div id="tab-content-chart" class="tab-content hidden">
+          <!-- Chart type toggle -->
+          <div class="chart-controls">
+            <div class="toggle-group">
+              <button id="toggle-height" class="toggle-btn active" data-type="height">身高</button>
+              <button id="toggle-weight" class="toggle-btn" data-type="weight">體重</button>
+            </div>
+            
+            <div class="toggle-group age-range-group">
+              <button class="toggle-btn active" data-range="auto">自動縮放</button>
+              <button class="toggle-btn" data-range="0-2">0–2歲</button>
+              <button class="toggle-btn" data-range="2-5">2–5歲</button>
+              <button class="toggle-btn" data-range="5-18">5–18歲</button>
+              <button class="toggle-btn" data-range="all">全期 0–18歲</button>
+            </div>
+          </div>
+
+          <!-- Chart -->
+          <div class="chart-container">
+            <canvas id="growth-chart"></canvas>
+          </div>
         </div>
 
-        <!-- Measurement input -->
-        <div class="measure-section">
-          <h3>新增測量</h3>
-          <div class="measure-form">
-            <label>日期
-              <input id="m-date" type="date" />
-            </label>
-            <label>身高 (cm)
-              <input id="m-height" type="number" step="0.1" min="30" max="200" placeholder="103.0" />
-            </label>
-            <label>體重 (kg)
-              <input id="m-weight" type="number" step="0.1" min="2" max="100" placeholder="15.5" />
-            </label>
-            <button id="btn-add-measure" class="btn-primary">新增</button>
+        <!-- Tab Content 3: Logs -->
+        <div id="tab-content-logs" class="tab-content hidden">
+          <!-- Measurement input -->
+          <div class="measure-section">
+            <h3>新增測量</h3>
+            <div class="measure-form">
+              <label>日期
+                <input id="m-date" type="date" />
+              </label>
+              <label>身高 (cm)
+                <input id="m-height" type="number" step="0.1" min="30" max="200" placeholder="103.0" />
+              </label>
+              <label>體重 (kg)
+                <input id="m-weight" type="number" step="0.1" min="2" max="100" placeholder="15.5" />
+              </label>
+              <button id="btn-add-measure" class="btn-primary">新增</button>
+            </div>
+          </div>
+
+          <!-- Measurement history -->
+          <div class="history-section">
+            <h3>測量記錄</h3>
+            <div class="table-container">
+              <table id="measure-table" class="measure-table">
+                <thead>
+                  <tr>
+                    <th>日期</th>
+                    <th>年齡</th>
+                    <th>身高 (cm)</th>
+                    <th>體重 (kg)</th>
+                    <th>身高百分位</th>
+                    <th>體重百分位</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="measure-tbody"></tbody>
+              </table>
+            </div>
+            <div id="table-pagination" class="table-pagination hidden">
+              <button id="btn-prev-page" class="btn-page" title="上一頁">◀</button>
+              <span id="page-indicator" class="page-indicator">1 / 1</span>
+              <button id="btn-next-page" class="btn-page" title="下一頁">▶</button>
+            </div>
+            <p id="no-measures" class="no-data">尚無測量記錄</p>
           </div>
         </div>
 
-        <!-- AI chat -->
-        <div class="ai-section">
-          <h3>🤖 問 AI 顧問</h3>
-          <p class="ai-hint">只能詢問與孩子成長相關的問題（身高、體重、營養、睡眠、運動等）</p>
-          <div class="ai-examples">
-            <span>例：</span>
-            <button class="ai-example-btn">女兒身高偏低，有哪些飲食建議？</button>
-            <button class="ai-example-btn">幾歲睡前喝牛奶最有幫助？</button>
-            <button class="ai-example-btn">成長激素什麼時候分泌最多？</button>
+        <!-- Tab Content 2: AI Advisor -->
+        <div id="tab-content-ai" class="tab-content hidden">
+          <!-- AI chat (multi-turn) -->
+          <div class="ai-section">
+            <div class="ai-header">
+              <h3>🤖 AI 成長顧問</h3>
+              <button id="ai-clear" class="btn-secondary btn-sm">清除對話</button>
+            </div>
+            <div class="ai-disclaimer-box">
+              ⚠️ <strong>諮詢提示：</strong>AI 成長顧問所提供之內容僅為科普知識，回覆不具任何醫療診斷或治療效力。若有任何具體發育疑問，請諮詢專業小兒科醫師。
+            </div>
+            <p class="ai-hint">只能詢問與孩子成長相關的問題（身高、體重、營養、睡眠、運動等）</p>
+            <div class="ai-examples">
+              <span>例：</span>
+              <button class="ai-example-btn">女兒身高偏低，有哪些飲食建議？</button>
+              <button class="ai-example-btn">幾歲睡前喝牛奶最有幫助？</button>
+              <button class="ai-example-btn">成長激素什麼時候分泌最多？</button>
+            </div>
+            <!-- Conversation thread -->
+            <div id="ai-thread" class="ai-thread">
+              <p class="ai-thread-empty">開始詢問孩子成長相關問題</p>
+            </div>
+            <div id="ai-loading" class="ai-loading hidden">AI 正在思考中…</div>
+            <div id="ai-error" class="ai-error hidden"></div>
+            <div class="ai-input-row">
+              <textarea id="ai-question" placeholder="輸入問題… (Cmd+Enter 送出，最多 300 字)" rows="2" maxlength="300"></textarea>
+              <button id="ai-submit" class="btn-primary">送出</button>
+            </div>
           </div>
-          <div class="ai-input-row">
-            <textarea id="ai-question" placeholder="請輸入問題（最多 300 字）" rows="2" maxlength="300"></textarea>
-            <button id="ai-submit" class="btn-primary">送出</button>
-          </div>
-          <div id="ai-response" class="ai-response hidden">
-            <div class="ai-response-label">AI 顧問建議</div>
-            <div id="ai-answer" class="ai-answer"></div>
-          </div>
-          <div id="ai-loading" class="ai-loading hidden">AI 正在思考中…</div>
-          <div id="ai-error" class="ai-error hidden"></div>
         </div>
 
-        <!-- Measurement history -->
-        <div class="history-section">
-          <h3>測量記錄</h3>
-          <table id="measure-table" class="measure-table">
-            <thead>
-              <tr>
-                <th>日期</th>
-                <th>年齡</th>
-                <th>身高 (cm)</th>
-                <th>體重 (kg)</th>
-                <th>身高百分位</th>
-                <th>體重百分位</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody id="measure-tbody"></tbody>
-          </table>
-          <p id="no-measures" class="no-data">尚無測量記錄</p>
-        </div>
+        <!-- Global Medical Disclaimer Footer -->
+        <footer class="dash-footer">
+          <p class="global-disclaimer">
+            ⚠️ <strong>醫療免責聲明：</strong>本平台提供之所有生長百分位、發育評估、健康指南與 AI 顧問建議僅供個人健康管理與衛教知識參考，不構成任何醫療診斷、專業諮詢或臨床治療方案。使用本平台即代表您同意本系統服務條款，且理解數據與建議無法取代小兒科醫師之實體診斷。
+          </p>
+        </footer>
       </div>
     </main>
+  </div>
+
+  <!-- Feature 3: Percentile explanation modal -->
+  <div id="pct-modal-backdrop" class="modal-backdrop hidden">
+    <div class="modal-box" role="dialog" aria-modal="true">
+      <button id="pct-modal-close" class="modal-close" aria-label="關閉">×</button>
+      <h3 id="pct-modal-title" class="modal-title"></h3>
+      <p id="pct-modal-body" class="modal-body"></p>
+      <p class="modal-note">比起數字高低，孩子穩定地沿著自己的曲線成長才是最健康的表現。</p>
+    </div>
+  </div>
+
+  <!-- Legal Modal (TOS / Privacy) -->
+  <div id="legal-modal-backdrop" class="modal-backdrop hidden">
+    <div class="modal-box legal-modal-box" role="dialog" aria-modal="true">
+      <button id="legal-modal-close" class="modal-close" aria-label="關閉">×</button>
+      <h3 id="legal-modal-title" class="modal-title"></h3>
+      <div id="legal-modal-body" class="modal-body legal-modal-body"></div>
+    </div>
   </div>
 
   <script src="app.js"></script>

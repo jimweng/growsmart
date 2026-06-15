@@ -21,12 +21,24 @@ func New(database *db.DB) *Handler {
 
 // Register wires all routes onto mux.
 func (h *Handler) Register(mux *http.ServeMux) {
-	mux.HandleFunc("/api/children", h.children)
-	mux.HandleFunc("/api/children/", h.childrenSub) // /:id and /:id/measurements/:mid
-	mux.HandleFunc("/api/curves", h.handleCurves)
-	mux.HandleFunc("/api/percentile", h.handlePercentile)
-	mux.HandleFunc("/api/predict", h.handlePredict)
-	mux.HandleFunc("/api/ai/ask", h.handleAskAI)
+	// Auth routes (public — no middleware)
+	mux.HandleFunc("/auth/me", h.handleMe)
+	mux.HandleFunc("/auth/logout", h.handleLogout)
+	mux.HandleFunc("/auth/google", h.handleGoogleLogin)
+	mux.HandleFunc("/auth/google/callback", h.handleGoogleCallback)
+	mux.HandleFunc("/auth/facebook", h.handleFacebookLogin)
+	mux.HandleFunc("/auth/facebook/callback", h.handleFacebookCallback)
+	mux.HandleFunc("/auth/line", h.handleLineLogin)
+	mux.HandleFunc("/auth/line/callback", h.handleLineCallback)
+
+	// Protected API routes
+	mux.HandleFunc("/api/children", h.AuthMiddleware(h.children))
+	mux.HandleFunc("/api/children/", h.AuthMiddleware(h.childrenSub))
+	mux.HandleFunc("/api/curves", h.handleCurves)        // public — no user data
+	mux.HandleFunc("/api/percentile", h.handlePercentile) // public — no user data
+	mux.HandleFunc("/api/predict", h.handlePredict)       // public — no user data
+	mux.HandleFunc("/api/project", h.handleProject)       // public — no user data
+	mux.HandleFunc("/api/ai/ask", h.AuthMiddleware(h.handleAskAI))
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -42,9 +54,10 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 // ─── /api/children ───────────────────────────────────────────────────────────
 
 func (h *Handler) children(w http.ResponseWriter, r *http.Request) {
+	user, _ := userFromCtx(r)
 	switch r.Method {
 	case http.MethodGet:
-		list, err := h.db.ListChildren()
+		list, err := h.db.ListChildren(user.ID)
 		if err != nil {
 			writeError(w, 500, err.Error())
 			return
@@ -53,9 +66,11 @@ func (h *Handler) children(w http.ResponseWriter, r *http.Request) {
 
 	case http.MethodPost:
 		var req struct {
-			Name      string `json:"name"`
-			Gender    string `json:"gender"`
-			BirthDate string `json:"birthDate"`
+			Name         string   `json:"name"`
+			Gender       string   `json:"gender"`
+			BirthDate    string   `json:"birthDate"`
+			FatherHeight *float64 `json:"fatherHeight"`
+			MotherHeight *float64 `json:"motherHeight"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeError(w, 400, "invalid JSON")
@@ -65,7 +80,7 @@ func (h *Handler) children(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 400, "name, gender (male|female), birthDate required")
 			return
 		}
-		c, err := h.db.CreateChild(req.Name, req.Gender, req.BirthDate)
+		c, err := h.db.CreateChild(req.Name, req.Gender, req.BirthDate, req.FatherHeight, req.MotherHeight, user.ID)
 		if err != nil {
 			writeError(w, 500, err.Error())
 			return
@@ -106,22 +121,31 @@ func (h *Handler) childrenSub(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// /api/children/:id/ai-history
+	if parts[1] == "ai-history" {
+		h.handleAIHistory(w, r, childID)
+		return
+	}
+
 	writeError(w, 404, "not found")
 }
 
 func (h *Handler) childByID(w http.ResponseWriter, r *http.Request, childID string) {
+	user, _ := userFromCtx(r)
 	switch r.Method {
 	case http.MethodPut:
 		var req struct {
-			Name      string `json:"name"`
-			Gender    string `json:"gender"`
-			BirthDate string `json:"birthDate"`
+			Name         string   `json:"name"`
+			Gender       string   `json:"gender"`
+			BirthDate    string   `json:"birthDate"`
+			FatherHeight *float64 `json:"fatherHeight"`
+			MotherHeight *float64 `json:"motherHeight"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeError(w, 400, "invalid JSON")
 			return
 		}
-		c, err := h.db.UpdateChild(childID, req.Name, req.Gender, req.BirthDate)
+		c, err := h.db.UpdateChild(childID, req.Name, req.Gender, req.BirthDate, req.FatherHeight, req.MotherHeight, user.ID)
 		if err != nil {
 			writeError(w, 500, err.Error())
 			return
@@ -129,7 +153,7 @@ func (h *Handler) childByID(w http.ResponseWriter, r *http.Request, childID stri
 		writeJSON(w, 200, c)
 
 	case http.MethodDelete:
-		if err := h.db.DeleteChild(childID); err != nil {
+		if err := h.db.DeleteChild(childID, user.ID); err != nil {
 			writeError(w, 404, err.Error())
 			return
 		}
@@ -237,6 +261,35 @@ func (h *Handler) handlePercentile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	res := growth.CalcPercentile(req.Gender, req.AgeMonths, req.Height, req.Weight)
+	writeJSON(w, 200, res)
+}
+
+// ─── /api/project ────────────────────────────────────────────────────────────
+
+func (h *Handler) handleProject(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, 405, "POST only")
+		return
+	}
+	var req struct {
+		Gender      string  `json:"gender"`
+		Type        string  `json:"type"`
+		AgeMonths   int     `json:"ageMonths"`
+		Value       float64 `json:"value"`
+		PredictUpTo int     `json:"predictUpTo"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, 400, "invalid JSON")
+		return
+	}
+	if req.AgeMonths <= 0 || req.Value <= 0 {
+		writeError(w, 400, "ageMonths and value required")
+		return
+	}
+	if req.PredictUpTo == 0 {
+		req.PredictUpTo = 216
+	}
+	res := growth.ProjectByZScore(req.Gender, req.Type, req.AgeMonths, req.Value, req.PredictUpTo)
 	writeJSON(w, 200, res)
 }
 

@@ -2,16 +2,78 @@ package ai
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 )
 
-const apiURL = "https://api.anthropic.com/v1/messages"
-const model = "claude-haiku-4-5-20251001"
+// ── Host Proxy ────────────────────────────────────────────────────────────────
+
+type proxyRequest struct {
+	SystemPrompt string    `json:"systemPrompt"`
+	Messages     []Message `json:"messages"`
+}
+
+type proxyResponse struct {
+	Answer string `json:"answer"`
+	Error  string `json:"error"`
+}
+
+// callProxy calls the host-side claude-proxy HTTP server.
+// The proxy URL is set via CLAUDE_PROXY_URL env var (e.g. http://host.docker.internal:9999).
+func callProxy(ctx context.Context, systemPrompt string, messages []Message) (string, error) {
+	proxyURL := os.Getenv("CLAUDE_PROXY_URL")
+	if proxyURL == "" {
+		return "", fmt.Errorf("CLAUDE_PROXY_URL not set")
+	}
+
+	payload, _ := json.Marshal(proxyRequest{
+		SystemPrompt: systemPrompt,
+		Messages:     messages,
+	})
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, proxyURL+"/ask", bytes.NewReader(payload))
+	if err != nil {
+		return "", fmt.Errorf("proxy request build: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 120 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("proxy unreachable: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	var result proxyResponse
+	if err := json.Unmarshal(body, &result); err != nil {
+		return "", fmt.Errorf("proxy decode: %w", err)
+	}
+	if result.Error != "" {
+		return "", fmt.Errorf("proxy error: %s", result.Error)
+	}
+	return result.Answer, nil
+}
+
+const (
+	apiURL = "https://api.anthropic.com/v1/messages"
+	model  = "claude-haiku-4-5-20251001"
+)
+
+// Message is a single chat turn (role: "user" | "assistant").
+type Message struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
 
 // injectionPatterns — common jailbreak attempts (English + Chinese).
 var injectionPatterns = []string{
@@ -23,7 +85,6 @@ var injectionPatterns = []string{
 	"override", "disregard", "bypass",
 	"system prompt", "reveal your", "print your instructions",
 	"new instructions", "new system",
-	// Chinese
 	"忽略之前", "忽略上面", "忘記規則", "忘記指令",
 	"你現在是", "假裝你是", "扮演", "角色扮演",
 	"系統提示", "透露指令", "顯示提示",
@@ -40,16 +101,16 @@ func IsSafeQuestion(q string) bool {
 	return true
 }
 
-// ChildContext is passed to the AI for personalised advice.
+// ChildContext carries structured data about a child for the AI system prompt.
 type ChildContext struct {
-	Name          string
-	Gender        string
-	AgeMonths     int
-	LatestHeight  *float64
-	LatestWeight  *float64
-	HeightPct     *float64
-	WeightPct     *float64
-	MeasureCount  int
+	Name         string
+	Gender       string
+	AgeMonths    int
+	LatestHeight *float64
+	LatestWeight *float64
+	HeightPct    *float64
+	WeightPct    *float64
+	MeasureCount int
 }
 
 func buildSystemPrompt(ctx ChildContext) string {
@@ -93,21 +154,65 @@ func buildSystemPrompt(ctx ChildContext) string {
 請用繁體中文回答，語氣溫暖、有根據，回答長度適中（約 150-300 字）。`
 }
 
-func buildUserMessage(question string) string {
-	// Wrap user input in XML tags — model sees it as content, not instructions.
+// buildUserContent wraps the user question in XML tags to prevent injection.
+func buildUserContent(question string) string {
 	return fmt.Sprintf("<user_question>\n%s\n</user_question>\n\n請根據以上問題與孩子資料提供建議，如與兒童成長無關請拒絕。", question)
 }
+
+// ── Local CLI ─────────────────────────────────────────────────────────────────
+
+// callLocalCLI calls the locally installed `claude` CLI via stdin.
+// Mirrors the pattern from stock-analysis claude_chat_handler.go.
+func callLocalCLI(ctx context.Context, systemPrompt string, messages []Message) (string, error) {
+	cliPath, err := exec.LookPath("claude")
+	if err != nil {
+		// Fallback: check ~/.local/bin/claude
+		if home, herr := os.UserHomeDir(); herr == nil {
+			candidate := filepath.Join(home, ".local", "bin", "claude")
+			if _, serr := os.Stat(candidate); serr == nil {
+				cliPath = candidate
+			}
+		}
+	}
+	if cliPath == "" {
+		return "", fmt.Errorf("claude CLI not found (app may be running inside Docker where host CLI is inaccessible); use 'make run' to run on host, or set ANTHROPIC_API_KEY")
+	}
+
+	// Format conversation history into a single prompt for -p mode.
+	var sb strings.Builder
+	sb.WriteString(systemPrompt)
+	sb.WriteString("\n\n以下是對話記錄：\n")
+	for _, m := range messages {
+		label := "USER"
+		if m.Role == "assistant" {
+			label = "ASSISTANT"
+		}
+		sb.WriteString(fmt.Sprintf("%s: %s\n", label, m.Content))
+	}
+	if len(messages) > 0 && messages[len(messages)-1].Role != "assistant" {
+		sb.WriteString("ASSISTANT:")
+	}
+
+	cmd := exec.CommandContext(ctx, cliPath, "--output-format", "text", "-p", "-")
+	cmd.Stdin = strings.NewReader(sb.String())
+	out, execErr := cmd.Output()
+	if execErr != nil {
+		var exitErr *exec.ExitError
+		if errors.As(execErr, &exitErr) {
+			return "", fmt.Errorf("claude CLI exit %d: %s", exitErr.ExitCode(), string(exitErr.Stderr))
+		}
+		return "", fmt.Errorf("claude CLI: %w", execErr)
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// ── Anthropic API ─────────────────────────────────────────────────────────────
 
 type apiRequest struct {
 	Model     string    `json:"model"`
 	MaxTokens int       `json:"max_tokens"`
 	System    string    `json:"system"`
-	Messages  []message `json:"messages"`
-}
-
-type message struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Messages  []Message `json:"messages"`
 }
 
 type apiResponse struct {
@@ -119,24 +224,22 @@ type apiResponse struct {
 	} `json:"error"`
 }
 
-// Ask calls the Anthropic Messages API and returns the assistant's reply.
-func Ask(ctx ChildContext, question string) (string, error) {
+var errNoAPIKey = errors.New("ANTHROPIC_API_KEY not set")
+
+func callAPI(ctx context.Context, systemPrompt string, messages []Message) (string, error) {
 	apiKey := os.Getenv("ANTHROPIC_API_KEY")
 	if apiKey == "" {
-		return "", fmt.Errorf("ANTHROPIC_API_KEY not set")
+		return "", errNoAPIKey
 	}
 
-	payload := apiRequest{
+	payload, _ := json.Marshal(apiRequest{
 		Model:     model,
 		MaxTokens: 600,
-		System:    buildSystemPrompt(ctx),
-		Messages: []message{
-			{Role: "user", Content: buildUserMessage(question)},
-		},
-	}
+		System:    systemPrompt,
+		Messages:  messages,
+	})
 
-	body, _ := json.Marshal(payload)
-	req, err := http.NewRequest(http.MethodPost, apiURL, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewReader(payload))
 	if err != nil {
 		return "", err
 	}
@@ -151,8 +254,9 @@ func Ask(ctx ChildContext, question string) (string, error) {
 	}
 	defer resp.Body.Close()
 
+	body, _ := io.ReadAll(resp.Body)
 	var result apiResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.Unmarshal(body, &result); err != nil {
 		return "", fmt.Errorf("decode response: %w", err)
 	}
 	if result.Error != nil {
@@ -162,4 +266,39 @@ func Ask(ctx ChildContext, question string) (string, error) {
 		return "", fmt.Errorf("empty response")
 	}
 	return result.Content[0].Text, nil
+}
+
+// ── Public entry point ────────────────────────────────────────────────────────
+
+const maxHistoryMessages = 10 // sliding window
+
+// Ask sends a new question (with history) to Claude.
+// Priority: local claude CLI → Anthropic API.
+// The new user question is wrapped in XML delimiters before appending to history.
+func Ask(ctx context.Context, childCtx ChildContext, history []Message, question string) (string, error) {
+	systemPrompt := buildSystemPrompt(childCtx)
+
+	// Build messages: validated history + new wrapped question
+	msgs := make([]Message, 0, len(history)+1)
+	for _, m := range history {
+		if m.Role == "user" || m.Role == "assistant" {
+			msgs = append(msgs, m)
+		}
+	}
+	msgs = append(msgs, Message{Role: "user", Content: buildUserContent(question)})
+
+	// Sliding window
+	if len(msgs) > maxHistoryMessages {
+		msgs = msgs[len(msgs)-maxHistoryMessages:]
+	}
+
+	// Priority: host proxy → local CLI → Anthropic API
+	answer, err := callProxy(ctx, systemPrompt, msgs)
+	if err != nil {
+		answer, err = callLocalCLI(ctx, systemPrompt, msgs)
+	}
+	if err != nil {
+		answer, err = callAPI(ctx, systemPrompt, msgs)
+	}
+	return answer, err
 }
