@@ -21,13 +21,24 @@ func New(database *db.DB) *Handler {
 
 // Register wires all routes onto mux.
 func (h *Handler) Register(mux *http.ServeMux) {
-	mux.HandleFunc("/api/children", h.children)
-	mux.HandleFunc("/api/children/", h.childrenSub) // /:id and /:id/measurements/:mid
-	mux.HandleFunc("/api/curves", h.handleCurves)
-	mux.HandleFunc("/api/percentile", h.handlePercentile)
-	mux.HandleFunc("/api/predict", h.handlePredict)
-	mux.HandleFunc("/api/project", h.handleProject)
-	mux.HandleFunc("/api/ai/ask", h.handleAskAI)
+	// Auth routes (public — no middleware)
+	mux.HandleFunc("/auth/me", h.handleMe)
+	mux.HandleFunc("/auth/logout", h.handleLogout)
+	mux.HandleFunc("/auth/google", h.handleGoogleLogin)
+	mux.HandleFunc("/auth/google/callback", h.handleGoogleCallback)
+	mux.HandleFunc("/auth/facebook", h.handleFacebookLogin)
+	mux.HandleFunc("/auth/facebook/callback", h.handleFacebookCallback)
+	mux.HandleFunc("/auth/line", h.handleLineLogin)
+	mux.HandleFunc("/auth/line/callback", h.handleLineCallback)
+
+	// Protected API routes
+	mux.HandleFunc("/api/children", h.AuthMiddleware(h.children))
+	mux.HandleFunc("/api/children/", h.AuthMiddleware(h.childrenSub))
+	mux.HandleFunc("/api/curves", h.handleCurves)        // public — no user data
+	mux.HandleFunc("/api/percentile", h.handlePercentile) // public — no user data
+	mux.HandleFunc("/api/predict", h.handlePredict)       // public — no user data
+	mux.HandleFunc("/api/project", h.handleProject)       // public — no user data
+	mux.HandleFunc("/api/ai/ask", h.AuthMiddleware(h.handleAskAI))
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -43,9 +54,10 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 // ─── /api/children ───────────────────────────────────────────────────────────
 
 func (h *Handler) children(w http.ResponseWriter, r *http.Request) {
+	user, _ := userFromCtx(r)
 	switch r.Method {
 	case http.MethodGet:
-		list, err := h.db.ListChildren()
+		list, err := h.db.ListChildren(user.ID)
 		if err != nil {
 			writeError(w, 500, err.Error())
 			return
@@ -68,7 +80,7 @@ func (h *Handler) children(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 400, "name, gender (male|female), birthDate required")
 			return
 		}
-		c, err := h.db.CreateChild(req.Name, req.Gender, req.BirthDate, req.FatherHeight, req.MotherHeight)
+		c, err := h.db.CreateChild(req.Name, req.Gender, req.BirthDate, req.FatherHeight, req.MotherHeight, user.ID)
 		if err != nil {
 			writeError(w, 500, err.Error())
 			return
@@ -119,6 +131,7 @@ func (h *Handler) childrenSub(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) childByID(w http.ResponseWriter, r *http.Request, childID string) {
+	user, _ := userFromCtx(r)
 	switch r.Method {
 	case http.MethodPut:
 		var req struct {
@@ -132,7 +145,7 @@ func (h *Handler) childByID(w http.ResponseWriter, r *http.Request, childID stri
 			writeError(w, 400, "invalid JSON")
 			return
 		}
-		c, err := h.db.UpdateChild(childID, req.Name, req.Gender, req.BirthDate, req.FatherHeight, req.MotherHeight)
+		c, err := h.db.UpdateChild(childID, req.Name, req.Gender, req.BirthDate, req.FatherHeight, req.MotherHeight, user.ID)
 		if err != nil {
 			writeError(w, 500, err.Error())
 			return
@@ -140,7 +153,7 @@ func (h *Handler) childByID(w http.ResponseWriter, r *http.Request, childID stri
 		writeJSON(w, 200, c)
 
 	case http.MethodDelete:
-		if err := h.db.DeleteChild(childID); err != nil {
+		if err := h.db.DeleteChild(childID, user.ID); err != nil {
 			writeError(w, 404, err.Error())
 			return
 		}

@@ -44,7 +44,8 @@ func (h *Handler) handleAskAI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	child, err := h.db.GetChild(req.ChildID)
+	user, _ := userFromCtx(r)
+	child, err := h.db.GetChild(req.ChildID, user.ID)
 	if err != nil {
 		writeError(w, 404, "child not found")
 		return
